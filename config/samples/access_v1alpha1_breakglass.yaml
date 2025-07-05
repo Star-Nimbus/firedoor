@@ -1,0 +1,9 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  labels:
+    app.kubernetes.io/name: firedoor
+    app.kubernetes.io/managed-by: kustomize
+  name: breakglass-sample
+spec:
+  # TODO(user): Add fields here

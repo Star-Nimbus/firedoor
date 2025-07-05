@@ -1,0 +1,68 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: app
+build:
+  platforms: ["linux/amd64", "linux/arm64"]
+  artifacts:
+    - image: firedoor-operator
+      context: .
+      ko:
+        fromImage: gcr.io/distroless/static:nonroot
+        labels:
+          org.opencontainers.image.source: https://github.com/cloudnimbus/firedoor
+          org.opencontainers.image.description: Firedoor is a Kubernetes operator for managing breakglass access to the cluster.
+          org.opencontainers.image.licenses: Apache-2.0
+          org.opencontainers.image.vendor: Cloud Nimbus
+        dependencies:
+          paths:
+              - cmd
+              - go.mod
+              - internal
+              - api
+        ldflags:
+          - -s
+          - -w
+        main: ./cmd
+profiles:
+  - name: dev
+    activation:
+      - kubeContext: minikube
+      - kubeContext: kind-kind
+    requiresAllActivations: false
+    manifests:
+      kustomize:
+        paths:
+          - config/default
+    deploy:
+      helm:
+        releases:
+          - name: monitoring
+            remoteChart: kube-prometheus-stack
+            namespace: monitoring
+            createNamespace: true
+            repo: https://prometheus-community.github.io/helm-charts
+            valuesFiles:
+              - config/prometheus/dev.yaml
+        hooks:
+          after:
+            - host:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    kubectl get secret --namespace monitoring monitoring-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+      kubectl: {}
+    portForward:
+    - resourceName: monitoring-grafana
+      resourceType: service
+      port: 80
+      namespace: monitoring
+      localPort: 3000
+      address: 127.0.0.1
+    - resourceName: monitoring-kube-prometheus-prometheus
+      resourceType: service
+      port: 9090
+      namespace: monitoring
+      localPort: 9090
+      address: 127.0.0.1
