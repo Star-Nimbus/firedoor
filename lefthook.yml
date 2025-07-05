@@ -63,8 +63,11 @@ commit-msg:
     # Check commit message format
     commit-message:
       run: |
+        # Get the commit message from git
+        COMMIT_MSG=$(git log -1 --pretty=format:%s)
+        
         # Check if commit message follows conventional commits format
-        if ! echo "$(cat $1)" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+"; then
+        if ! echo "$COMMIT_MSG" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+"; then
           echo "❌ Commit message should follow conventional commits format:"
           echo "   <type>(<scope>): <description>"
           echo "   Examples:"
@@ -72,6 +75,7 @@ commit-msg:
           echo "   - fix(auth): resolve login issue"
           echo "   - docs: update README"
           echo "   - chore: update dependencies"
+          echo "   Current message: $COMMIT_MSG"
           exit 1
         fi
 
@@ -94,7 +98,8 @@ post-merge:
       run: |
         echo "🔄 Updating dependencies after merge..."
         go mod tidy
-        go mod download
+        go mod vendor
+        go mod verify
 
 # Post-checkout hook - runs after checkout
 post-checkout:

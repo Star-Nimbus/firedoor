@@ -80,16 +80,16 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
+test: manifests generate fmt vet envtest vendor ## Run tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -mod=vendor -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
 
 .PHONY: test-short
-test-short: manifests generate fmt vet envtest ## Run tests with short timeout.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -short -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
+test-short: manifests generate fmt vet envtest vendor ## Run tests with short timeout.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -mod=vendor -short -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
 
 .PHONY: test-parallel
-test-parallel: manifests generate fmt vet envtest ## Run tests in parallel.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -race -coverprofile cover.out -covermode=atomic -parallel 4 $$(go list ./... | grep -v /e2e)
+test-parallel: manifests generate fmt vet envtest vendor ## Run tests in parallel.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -mod=vendor -race -coverprofile cover.out -covermode=atomic -parallel 4 $$(go list ./... | grep -v /e2e)
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
@@ -123,7 +123,42 @@ lint-helm: ## Run Helm chart linting
 		helm lint "$$chart" || true; \
 	done
 
+.PHONY: vendor
+vendor: ## Vendor dependencies
+	go mod vendor
 
+.PHONY: vendor-update
+vendor-update: ## Update and vendor dependencies
+	go mod tidy
+	go mod vendor
+
+.PHONY: vendor-prune
+vendor-prune: ## Prune unused dependencies from vendor
+	go mod tidy
+	go mod vendor
+	go mod verify
+
+.PHONY: vendor-clean
+vendor-clean: ## Clean vendor directory
+	rm -rf vendor/
+	go mod tidy
+
+.PHONY: vendor-init
+vendor-init: ## Initialize vendor directory (first time setup)
+	@echo "🔧 Setting up vendor mode..."
+	@if [ -d "vendor" ]; then \
+		echo "🗑️  Removing existing vendor directory..."; \
+		rm -rf vendor/; \
+	fi
+	@echo "📦 Tidying up go.mod and go.sum..."
+	@go mod tidy
+	@echo "📥 Downloading dependencies to vendor..."
+	@go mod vendor
+	@echo "🔍 Verifying vendor integrity..."
+	@go mod verify
+	@echo "✅ Vendor directory created successfully!"
+	@echo "💡 Use 'make vendor-update' to update dependencies"
+	@echo "💡 Use 'make vendor-prune' to clean up unused dependencies"
 
 .PHONY: setup-hooks
 setup-hooks: install-lefthook ## Set up Git hooks with Lefthook
@@ -137,12 +172,12 @@ hooks: setup-hooks ## Alias for setup-hooks
 ##@ Build
 
 .PHONY: build
-build: manifests sync-crd generate fmt vet ## Build manager binary.
-	go build $(GO_BUILD_FLAGS) -o bin/manager cmd/main.go
+build: manifests sync-crd generate fmt vet vendor ## Build manager binary.
+	go build -mod=vendor $(GO_BUILD_FLAGS) -o bin/manager cmd/main.go
 
 .PHONY: build-cli
-build-cli: ## Build CLI binary.
-	go build $(GO_BUILD_FLAGS) -o bin/firedoor cmd/main.go
+build-cli: vendor ## Build CLI binary.
+	go build -mod=vendor $(GO_BUILD_FLAGS) -o bin/firedoor cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

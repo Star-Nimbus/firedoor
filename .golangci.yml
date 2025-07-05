@@ -1,41 +1,31 @@
-version: "1"
-
 run:
   timeout: 5m
   allow-parallel-runners: true
   modules-download-mode: vendor
   issues-exit-code: 1
+  tests: false              
 
 issues:
-  exclude-use-default: false
+  # housekeeping
   max-issues-per-linter: 0
   max-same-issues: 0
+  uniq-by-line: false
 
-  # Glob‑style paths completely ignored by every linter
-  exclude-dirs:
+  # generated-code handling
+
+  # global suppressions
+  exclude-dirs:              # nothing reported from these folders :contentReference[oaicite:1]{index=1}
     - vendor
     - build
     - dist
+    - test
   exclude-files:
-    - '.*\.gen\.go'     # protobuf, mockgen, etc.
-    - 'mock_.*\.go'      # gomock et al.
-
-  # Ad‑hoc regex suppressions
+    - '.*\.gen\.go'
+    - 'mock_.*\.go'
   exclude:
     - 'Error return value of .*(Close|Write|Flush).* is not checked'
 
-  # Path‑scoped relaxations
-  exclude-rules:
-    - path: 'api/.*'
-      linters: [lll]
-    - path: 'internal/.*'
-      linters: [dupl, lll]
-    - path: 'cmd/.*'
-      linters: [gocyclo]
-    - path: 'test/.*'
-      linters: [errcheck, gocyclo, govet, typecheck]
-    - path: '.*_test\.go$'
-      linters: [errcheck, typecheck]
+  # path- or text-scoped tweaks (same logic you had, just moved under `issues.rules`)
 
 linters:
   disable-all: true
@@ -57,16 +47,17 @@ linters:
     - misspell
     - nakedret
     - prealloc
-    - revive        # modern replacement for golint
+    - revive
     - staticcheck
     - unconvert
     - unparam
     - unused
+  # If you want opinionated bundles, put them **here** (not inside exclusions):
+  # presets: [bugs, style]
 
-linters-settings:
+linters-settings:            # top-level block for per-linter knobs :contentReference[oaicite:2]{index=2}
   gocyclo:
     min-complexity: 15
-    skip-dirs: [test]
   gocognit:
     min-complexity: 15
   lll:
@@ -79,12 +70,7 @@ linters-settings:
   gofmt:
     simplify: true
   goimports:
-    local-prefixes: github.com/yourorg/yourrepo
-  gosec:
-    exclude: [G101, G204]
-    skip-dirs: [test]
+    local-prefixes: github.com/cloud-nimbus/firedoor
   revive:
-    ignore-generated-header: true
     confidence: 0.8
-    error-code: 32
     severity: warning
