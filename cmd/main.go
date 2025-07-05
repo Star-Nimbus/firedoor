@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
+	"github.com/cloud-nimbus/firedoor/internal/config"
 	"github.com/cloud-nimbus/firedoor/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
@@ -52,6 +53,31 @@ func init() {
 }
 
 func main() {
+	// Load configuration using viper
+	cfg, err := config.Load()
+	if err != nil {
+		setupLog.Error(err, "unable to load configuration")
+		os.Exit(1)
+	}
+
+	// Log OpenTelemetry configuration
+	setupLog.Info("OpenTelemetry configuration",
+		"enabled", cfg.OTel.Enabled,
+		"exporter", cfg.OTel.Exporter,
+		"endpoint", cfg.OTel.Endpoint,
+		"service", cfg.OTel.Service)
+
+	// Initialize OpenTelemetry if enabled
+	if cfg.OTel.Enabled {
+		setupLog.Info("OpenTelemetry is enabled - setting up tracing...")
+		// TODO: Add OpenTelemetry initialization here
+		// Example:
+		// if err := otel.InitTracer(cfg.OTel); err != nil {
+		//     setupLog.Error(err, "failed to initialize OpenTelemetry")
+		//     os.Exit(1)
+		// }
+	}
+
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
