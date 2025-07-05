@@ -41,7 +41,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Run linting
-        run: make lint
+        run: make lint GOLANGCI_LINT_EXTRA_FLAGS="--timeout=10m --verbose"
 
       - name: Run unit tests
         run: make test
@@ -315,6 +315,31 @@ jobs:
           sarif_file: 'trivy-results.sarif'
           
       - name: Run Trivy vulnerability scanner (Table format)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+          format: 'table'
+
+  # golangci-lint configuration
+  golangci-lint:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run golangci-lint
+        run: |
+          curl -Lo bin/golangci-lint-v1.57.2 https://github.com/golangci/golangci-lint/releases/download/v1.57.2/golangci-lint-v1.57.2-linux-amd64
+          chmod +x bin/golangci-lint-v1.57.2
+          bin/golangci-lint-v1.57.2 run --timeout=10m --verbose
+
+      - name: Upload golangci-lint results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'golangci-lint-results.sarif'
+          
+      - name: Run golangci-lint (Table format)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
