@@ -40,11 +40,6 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
-      - name: Generate code
-        run: |
-          make generate
-          make manifests
-
       - name: Run linting
         run: make lint
 
