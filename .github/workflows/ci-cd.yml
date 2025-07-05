@@ -26,6 +26,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
+          cache: true
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -33,12 +34,11 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
+            ~/go/bin
+          key: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}
           restore-keys: |
+            ${{ runner.os }}-go-${{ hashFiles('go.mod') }}
             ${{ runner.os }}-go-
-
-      - name: Install dependencies
-        run: go mod download
 
       - name: Run linting
         run: make lint
@@ -65,6 +65,19 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
+          cache: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/go/bin
+          key: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ hashFiles('go.mod') }}
+            ${{ runner.os }}-go-
 
       - name: Set up Kind
         uses: helm/kind-action@v1
@@ -100,6 +113,19 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
+          cache: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/go/bin
+          key: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ hashFiles('go.mod') }}
+            ${{ runner.os }}-go-
 
       - name: Set up Skaffold
         run: |
