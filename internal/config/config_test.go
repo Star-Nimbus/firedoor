@@ -39,26 +39,51 @@ var _ = Describe("Config", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(cfg).NotTo(BeNil())
 
+				// OpenTelemetry defaults
 				Expect(cfg.OTel.Enabled).To(BeFalse())
 				Expect(cfg.OTel.Exporter).To(Equal("otlp"))
 				Expect(cfg.OTel.Endpoint).To(Equal("http://localhost:4318/v1/traces"))
 				Expect(cfg.OTel.Service).To(Equal("firedoor-operator"))
+
+				// Manager defaults
+				Expect(cfg.Manager.LeaderElect).To(BeFalse())
+
+				// Metrics defaults
+				Expect(cfg.Metrics.BindAddress).To(Equal(":8080"))
+				Expect(cfg.Metrics.Secure).To(BeFalse())
+
+				// Health defaults
+				Expect(cfg.Health.ProbeBindAddress).To(Equal(":8081"))
+
+				// HTTP defaults
+				Expect(cfg.HTTP.EnableHTTP2).To(BeFalse())
 			})
 		})
 
 		Context("with environment variables", func() {
 			BeforeEach(func() {
-				os.Setenv("FD_OTEL_ENABLED", "true")
-				os.Setenv("FD_OTEL_EXPORTER", "stdout")
-				os.Setenv("FD_OTEL_ENDPOINT", "http://custom:4318/v1/traces")
-				os.Setenv("FD_OTEL_SERVICE", "test-service")
+				_ = os.Setenv("FD_OTEL_ENABLED", "true")
+				_ = os.Setenv("FD_OTEL_EXPORTER", "stdout")
+				_ = os.Setenv("FD_OTEL_ENDPOINT", "http://custom:4318/v1/traces")
+				_ = os.Setenv("FD_OTEL_SERVICE", "test-service")
+				_ = os.Setenv("FD_MANAGER_LEADER_ELECT", "true")
+				_ = os.Setenv("FD_METRICS_BIND_ADDRESS", ":9090")
+				_ = os.Setenv("FD_METRICS_SECURE", "true")
+				_ = os.Setenv("FD_HEALTH_PROBE_BIND_ADDRESS", ":9091")
+				_ = os.Setenv("FD_HTTP_ENABLE_HTTP2", "true")
 			})
 
 			AfterEach(func() {
-				os.Unsetenv("FD_OTEL_ENABLED")
-				os.Unsetenv("FD_OTEL_EXPORTER")
-				os.Unsetenv("FD_OTEL_ENDPOINT")
-				os.Unsetenv("FD_OTEL_SERVICE")
+				// Clean up environment variables
+				_ = os.Unsetenv("FD_OTEL_ENABLED")
+				_ = os.Unsetenv("FD_OTEL_EXPORTER")
+				_ = os.Unsetenv("FD_OTEL_ENDPOINT")
+				_ = os.Unsetenv("FD_OTEL_SERVICE")
+				_ = os.Unsetenv("FD_MANAGER_LEADER_ELECT")
+				_ = os.Unsetenv("FD_METRICS_BIND_ADDRESS")
+				_ = os.Unsetenv("FD_METRICS_SECURE")
+				_ = os.Unsetenv("FD_HEALTH_PROBE_BIND_ADDRESS")
+				_ = os.Unsetenv("FD_HTTP_ENABLE_HTTP2")
 			})
 
 			It("should load configuration from environment variables", func() {
@@ -66,10 +91,7 @@ var _ = Describe("Config", func() {
 				v := viper.New()
 
 				// Set defaults
-				v.SetDefault("otel.enabled", false)
-				v.SetDefault("otel.exporter", "otlp")
-				v.SetDefault("otel.endpoint", "http://localhost:4318/v1/traces")
-				v.SetDefault("otel.service", "firedoor-operator")
+				setDefaults(v)
 
 				// Read from environment variables
 				v.SetEnvPrefix("FD")
@@ -80,10 +102,42 @@ var _ = Describe("Config", func() {
 				err := v.Unmarshal(&cfg)
 				Expect(err).NotTo(HaveOccurred())
 
+				// OpenTelemetry values
 				Expect(cfg.OTel.Enabled).To(BeTrue())
 				Expect(cfg.OTel.Exporter).To(Equal("stdout"))
 				Expect(cfg.OTel.Endpoint).To(Equal("http://custom:4318/v1/traces"))
 				Expect(cfg.OTel.Service).To(Equal("test-service"))
+
+				// Manager values
+				Expect(cfg.Manager.LeaderElect).To(BeTrue())
+
+				// Metrics values
+				Expect(cfg.Metrics.BindAddress).To(Equal(":9090"))
+				Expect(cfg.Metrics.Secure).To(BeTrue())
+
+				// Health values
+				Expect(cfg.Health.ProbeBindAddress).To(Equal(":9091"))
+
+				// HTTP values
+				Expect(cfg.HTTP.EnableHTTP2).To(BeTrue())
+			})
+		})
+
+		Context("with LoadWithViper", func() {
+			It("should work with a custom viper instance", func() {
+				v := viper.New()
+				v.Set("otel.enabled", true)
+				v.Set("otel.service", "custom-service")
+				v.Set("manager.leader_elect", true)
+				v.Set("metrics.bind_address", ":8888")
+
+				cfg, err := LoadWithViper(v)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(cfg.OTel.Enabled).To(BeTrue())
+				Expect(cfg.OTel.Service).To(Equal("custom-service"))
+				Expect(cfg.Manager.LeaderElect).To(BeTrue())
+				Expect(cfg.Metrics.BindAddress).To(Equal(":8888"))
 			})
 		})
 	})
@@ -111,6 +165,11 @@ var _ = Describe("Config", func() {
 				v.Set("otel.exporter", "stdout")
 				v.Set("otel.endpoint", "http://example.com:4318/v1/traces")
 				v.Set("otel.service", "example-service")
+				v.Set("manager.leader_elect", true)
+				v.Set("metrics.bind_address", ":8080")
+				v.Set("metrics.secure", true)
+				v.Set("health.probe_bind_address", ":8081")
+				v.Set("http.enable_http2", true)
 
 				var cfg Config
 				err := v.Unmarshal(&cfg)
@@ -120,6 +179,11 @@ var _ = Describe("Config", func() {
 				Expect(cfg.OTel.Exporter).To(Equal("stdout"))
 				Expect(cfg.OTel.Endpoint).To(Equal("http://example.com:4318/v1/traces"))
 				Expect(cfg.OTel.Service).To(Equal("example-service"))
+				Expect(cfg.Manager.LeaderElect).To(BeTrue())
+				Expect(cfg.Metrics.BindAddress).To(Equal(":8080"))
+				Expect(cfg.Metrics.Secure).To(BeTrue())
+				Expect(cfg.Health.ProbeBindAddress).To(Equal(":8081"))
+				Expect(cfg.HTTP.EnableHTTP2).To(BeTrue())
 			})
 		})
 	})

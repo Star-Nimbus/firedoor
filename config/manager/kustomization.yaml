@@ -1,8 +1,9 @@
-resources:
-- manager.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+resources:
+- manager.yaml
+
 images:
 - name: controller
-  newName: example.com/firedoor
+  newName: star-nimbus.io/firedoor-operator
   newTag: v0.0.1

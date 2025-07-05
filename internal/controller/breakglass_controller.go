@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 
-	"go.opentelemetry.io/otel"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,8 +26,6 @@ import (
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 )
-
-var tracer = otel.Tracer("firedoor/internal/controller/breakglass")
 
 // BreakglassReconciler reconciles a Breakglass object
 type BreakglassReconciler struct {

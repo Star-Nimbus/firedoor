@@ -30,20 +30,46 @@ type OTelConfig struct {
 	Service  string `mapstructure:"service"`
 }
 
+// ManagerConfig holds manager-specific configuration
+type ManagerConfig struct {
+	LeaderElect bool `mapstructure:"leader_elect"`
+}
+
+// MetricsConfig holds metrics configuration
+type MetricsConfig struct {
+	BindAddress string `mapstructure:"bind_address"`
+	Secure      bool   `mapstructure:"secure"`
+}
+
+// HealthConfig holds health check configuration
+type HealthConfig struct {
+	ProbeBindAddress string `mapstructure:"probe_bind_address"`
+}
+
+// HTTPConfig holds HTTP server configuration
+type HTTPConfig struct {
+	EnableHTTP2 bool `mapstructure:"enable_http2"`
+}
+
 // Config holds all configuration settings for the application
 type Config struct {
-	OTel OTelConfig `mapstructure:"otel"`
+	OTel    OTelConfig    `mapstructure:"otel"`
+	Manager ManagerConfig `mapstructure:"manager"`
+	Metrics MetricsConfig `mapstructure:"metrics"`
+	Health  HealthConfig  `mapstructure:"health"`
+	HTTP    HTTPConfig    `mapstructure:"http"`
 }
 
 // Load reads configuration from various sources using viper
 func Load() (*Config, error) {
 	v := viper.New()
+	return LoadWithViper(v)
+}
 
+// LoadWithViper reads configuration using the provided viper instance
+func LoadWithViper(v *viper.Viper) (*Config, error) {
 	// Set defaults
-	v.SetDefault("otel.enabled", false)
-	v.SetDefault("otel.exporter", "otlp")
-	v.SetDefault("otel.endpoint", "http://localhost:4318/v1/traces")
-	v.SetDefault("otel.service", "firedoor-operator")
+	setDefaults(v)
 
 	// Read from environment variables
 	v.SetEnvPrefix("FD")
@@ -54,6 +80,7 @@ func Load() (*Config, error) {
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
+	v.AddConfigPath("/etc/firedoor") // ConfigMap mount path
 
 	// Read config file (optional)
 	if err := v.ReadInConfig(); err != nil {
@@ -68,4 +95,26 @@ func Load() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// setDefaults sets default values for all configuration options
+func setDefaults(v *viper.Viper) {
+	// OpenTelemetry defaults
+	v.SetDefault("otel.enabled", false)
+	v.SetDefault("otel.exporter", "otlp")
+	v.SetDefault("otel.endpoint", "http://localhost:4318/v1/traces")
+	v.SetDefault("otel.service", "firedoor-operator")
+
+	// Manager defaults
+	v.SetDefault("manager.leader_elect", false)
+
+	// Metrics defaults
+	v.SetDefault("metrics.bind_address", ":8080")
+	v.SetDefault("metrics.secure", false)
+
+	// Health defaults
+	v.SetDefault("health.probe_bind_address", ":8081")
+
+	// HTTP defaults
+	v.SetDefault("http.enable_http2", false)
 }

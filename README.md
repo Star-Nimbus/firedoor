@@ -1,114 +1,235 @@
-# firedoor
-// TODO(user): Add simple overview of use/purpose
+# Firedoor
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+Firedoor is a Kubernetes operator for managing breakglass access to the cluster.
 
-## Getting Started
+## Features
+
+- **Breakglass Access**: Temporary elevated access for emergency situations
+- **Audit Trails**: Complete logging and tracking of access requests
+- **Compliance**: Built-in compliance frameworks and reporting
+- **Secure**: Zero-trust principles with time-limited access
+
+## Quick Start
 
 ### Prerequisites
-- go version v1.21.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+- Kubernetes cluster
+- kubectl configured
+- Go 1.24+ (for development)
 
-```sh
-make docker-build docker-push IMG=<some-registry>/firedoor:tag
+### Installation
+
+```bash
+# Using kubectl
+kubectl apply -f https://github.com/cloud-nimbus/firedoor/releases/latest/download/install.yaml
+
+# Using Helm (coming soon)
+helm install firedoor oci://ghcr.io/cloud-nimbus/firedoor/charts/firedoor
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+### Usage
 
-**Install the CRDs into the cluster:**
+```bash
+# Request breakglass access
+kubectl create -f - <<EOF
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: emergency-access
+spec:
+  justification: "Critical production issue requiring immediate access"
+  duration: "1h"
+  permissions:
+    - namespaces: ["production"]
+      verbs: ["get", "list", "patch"]
+EOF
+```
 
-```sh
+## Development
+
+### Local Development
+
+```bash
+# Clone the repository
+git clone https://github.com/cloud-nimbus/firedoor.git
+cd firedoor
+
+# Install dependencies
 make install
+
+# Run tests
+make test
+
+# Build the operator
+make build
+
+# Run locally (requires running Kubernetes cluster)
+make run
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+### Using Skaffold
 
-```sh
-make deploy IMG=<some-registry>/firedoor:tag
+```bash
+# Development with hot reload
+skaffold dev --profile=dev
+
+# Build for CI/CD
+skaffold build --profile=ci-cd
+
+# Deploy with telemetry
+skaffold dev --profile=telemetry
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+### Version Information
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+```bash
+# Check version information
+make version
 
-```sh
-kubectl apply -k config/samples/
+# Build with version injection
+make build
+
+# Check CLI version
+./bin/firedoor version
+./bin/firedoor version --output json
+./bin/firedoor version --short
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+## CI/CD Pipeline
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+This project uses a comprehensive CI/CD pipeline with:
 
-```sh
-kubectl delete -k config/samples/
+- **Automated Testing**: Unit tests, linting, and E2E tests
+- **Semantic Versioning**: Automatic version bumping based on conventional commits
+- **Multi-Architecture Builds**: Support for AMD64 and ARM64
+- **Security Scanning**: Container vulnerability scanning with Trivy
+- **Automated Deployment**: Development and production deployments
+
+For detailed information about the CI/CD pipeline, see [docs/ci-cd.md](docs/ci-cd.md).
+
+### Contributing
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for semantic versioning:
+
+```bash
+# Examples
+git commit -m "feat: add OAuth2 authentication support"
+git commit -m "fix: resolve race condition in controller"
+git commit -m "docs: update installation instructions"
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+## Architecture
 
-```sh
-make uninstall
+### Components
+
+- **Controller**: Manages breakglass resources and RBAC
+- **Webhook**: Validates and mutates breakglass requests
+- **CLI**: Command-line interface for operators
+- **Dashboard**: Web UI for managing access (coming soon)
+
+### Security Model
+
+- **Zero Trust**: Every access request is verified
+- **Time-Limited**: All access has expiration times
+- **Audited**: Complete audit trail of all actions
+- **Minimal Permissions**: Principle of least privilege
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `METRICS_ADDR` | Metrics server address | `:8080` |
+| `HEALTH_ADDR` | Health probe address | `:8081` |
+| `LEADER_ELECT` | Enable leader election | `false` |
+| `OTEL_ENABLED` | Enable OpenTelemetry | `false` |
+
+### Configuration File
+
+```yaml
+# config.yaml
+metrics:
+  bind_address: ":8080"
+health:
+  probe_bind_address: ":8081"
+manager:
+  leader_elect: false
+otel:
+  enabled: false
+  endpoint: "http://localhost:4318/v1/traces"
 ```
 
-**UnDeploy the controller from the cluster:**
+## Monitoring
 
-```sh
-make undeploy
-```
+### Metrics
 
-## Project Distribution
+The operator exposes Prometheus metrics on `:8080/metrics`:
 
-Following are the steps to build the installer and distribute this project to users.
+- `firedoor_breakglass_requests_total`: Total breakglass requests
+- `firedoor_breakglass_active`: Currently active breakglass sessions
+- `firedoor_breakglass_denied_total`: Total denied requests
 
-1. Build the installer for the image built and published in the registry:
+### Tracing
 
-```sh
-make build-installer IMG=<some-registry>/firedoor:tag
-```
+OpenTelemetry tracing can be enabled for observability:
 
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
+The Helm chart configures the collector to listen on gRPC only. See `charts/firedoor/values.yaml` for details.
 
-2. Using the installer
+## Security
 
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
+### Reporting Security Issues
 
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/firedoor/<tag or branch>/dist/install.yaml
-```
+Please report security vulnerabilities to <security@cloudnimbus.io>. Do not create public issues for security vulnerabilities.
 
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
+### Security Scanning
 
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+All container images are automatically scanned for vulnerabilities using Trivy. Scan results are available in the GitHub Security tab.
 
 ## License
 
-Copyright 2025.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+## Support
 
-    http://www.apache.org/licenses/LICENSE-2.0
+- **Documentation**: [docs/](docs/)
+- **Issues**: [GitHub Issues](https://github.com/cloud-nimbus/firedoor/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/cloud-nimbus/firedoor/discussions)
+- **Security**: <security@cloudnimbus.io>
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+## Roadmap
 
+- [ ] Web dashboard for access management
+- [ ] Integration with external identity providers
+- [ ] Advanced audit and compliance reporting
+- [ ] Multi-cluster support
+- [ ] Custom approval workflows
+- [ ] Integration with incident management systems
+
+## Custom Resource Definitions (CRDs)
+
+Firedoor defines the following CRD:
+
+- **Group:** `access.cloudnimbus.io`
+- **Version:** `v1alpha1`
+- **Kind:** `Breakglass`
+
+The `Breakglass` resource allows you to request and manage emergency access. The `group` field can be used to specify a user group for access (in addition to or instead of a user):
+
+```yaml
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: emergency-access
+spec:
+  group: "devops-team"
+  durationMinutes: 60
+  namespace: "production"
+  role: "admin"
+  approved: true
+```
+
+- `group`: (string) The user group to grant access to. Either `user` or `group` must be provided.
+- `user`: (string) The individual user to grant access to. Either `user` or `group` must be provided.
+
+See the [Helm chart](../../charts/firedoor) for installation and CRD management.
