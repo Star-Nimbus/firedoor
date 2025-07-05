@@ -1,0 +1,150 @@
+# Default values for firedoor operator
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Image configuration
+image:
+  registry: ""
+  repository: firedoor
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Image pull secrets
+imagePullSecrets: []
+
+# Override the chart name
+nameOverride: ""
+fullnameOverride: ""
+
+# Controller configuration
+controller:
+  replicas: 1
+  
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+
+# Metrics configuration
+metrics:
+  enabled: true
+  port: 8080
+  bindAddress: "0.0.0.0"
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    labels: {}
+    interval: 30s
+    scrapeTimeout: 10s
+
+# Health probe configuration
+healthProbe:
+  port: 8081
+  bindAddress: ":8081"
+
+# Leader election
+leaderElection:
+  enabled: true
+
+# OpenTelemetry configuration
+openTelemetry:
+  enabled: false
+  exporter: otlp
+  endpoint: ""
+  headers: {}
+  insecure: true
+  timeout: 10s
+  compression: gzip
+  sampler:
+    type: parentbased_traceidratio
+    arg: "0.1"
+
+# Security context for containers
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 65532
+  runAsNonRoot: true
+  runAsUser: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Service account
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# RBAC configuration
+rbac:
+  # Whether to create RBAC resources
+  create: true
+
+# CRD configuration
+crds:
+  # Whether to install CRDs
+  install: true
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Priority class
+priorityClassName: ""
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Horizontal pod autoscaler
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Webhook configuration
+webhook:
+  enabled: false
+  port: 9443
+  certManager:
+    enabled: false
+    issuerRef: {}
+
+# Common labels applied to all resources
+commonLabels: {}
+
+# Common annotations applied to all resources
+commonAnnotations: {} 

@@ -1,0 +1,24 @@
+# All features values for firedoor operator
+# Configuration for development with metrics, monitoring, and OpenTelemetry
+
+# Metrics configuration
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    namespace: metrics-system
+
+# Health probe configuration
+healthProbe:
+  enabled: true
+
+# Leader election
+leaderElection:
+  enabled: true
+
+# OpenTelemetry configuration
+openTelemetry:
+  enabled: true
+  exporter: otlp
+  endpoint: "http://otel-collector.telemetry-system.svc.cluster.local:4317"
+  insecure: true 

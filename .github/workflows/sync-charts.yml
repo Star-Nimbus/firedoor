@@ -1,0 +1,276 @@
+name: Sync Charts to Charts Repository
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'config/chart/**'
+      - 'api/v1alpha1/**'
+      - 'config/crd/**'
+      - 'config/rbac/**'
+      - 'config/manager/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'config/chart/**'
+      - 'api/v1alpha1/**'
+      - 'config/crd/**'
+      - 'config/rbac/**'
+      - 'config/manager/**'
+  workflow_dispatch:
+
+jobs:
+  sync-charts:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout firedoor repository
+      uses: actions/checkout@v4
+      with:
+        path: firedoor
+        fetch-depth: 0
+
+    - name: Checkout charts repository
+      uses: actions/checkout@v4
+      with:
+        repository: Star-Nimbus/charts
+        token: ${{ secrets.CHARTS_REPO_TOKEN }}
+        path: charts
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Set up Kustomize
+      uses: imranismail/setup-kustomize@v2
+      with:
+        kustomize-version: '5.0.0'
+
+    - name: Install yq
+      run: |
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
+
+    - name: Install controller-gen
+      run: |
+        cd firedoor
+        go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+
+    - name: Generate CRDs and manifests
+      run: |
+        cd firedoor
+        make generate manifests || echo "Make targets might not exist, continuing..."
+
+    - name: Create temporary directory for generated manifests
+      run: |
+        mkdir -p temp-manifests
+
+    - name: Generate Kubernetes manifests
+      run: |
+        cd firedoor
+        
+        # Generate CRDs
+        if [ -d "config/crd" ]; then
+          kustomize build config/crd > ../temp-manifests/crds.yaml
+        fi
+        
+        # Generate RBAC
+        if [ -d "config/rbac" ]; then
+          kustomize build config/rbac > ../temp-manifests/rbac.yaml
+        fi
+        
+        # Generate base manifests
+        if [ -d "config/default" ]; then
+          kustomize build config/default > ../temp-manifests/base.yaml
+        fi
+
+    - name: Update Helm chart templates
+      run: |
+        # Copy charts from firedoor to charts repo
+        if [ -d "firedoor/config/chart" ]; then
+          cp -r firedoor/config/chart/* charts/
+        fi
+        
+        # Update CRD template in operator chart
+        if [ -f "temp-manifests/crds.yaml" ] && [ -d "charts/operator/templates" ]; then
+          echo "{{- if .Values.crds.install }}" > charts/operator/templates/crd.yaml
+          yq eval 'select(.kind == "CustomResourceDefinition")' temp-manifests/crds.yaml | \
+          sed 's/^/  /' >> charts/operator/templates/crd.yaml
+          echo "{{- end }}" >> charts/operator/templates/crd.yaml
+        fi
+        
+        # Update RBAC template with generated permissions
+        if [ -f "temp-manifests/rbac.yaml" ] && [ -d "charts/operator/templates" ]; then
+          python3 << 'EOF'
+        import yaml
+        import re
+        
+        try:
+            # Read generated RBAC
+            with open('temp-manifests/rbac.yaml', 'r') as f:
+                generated_rbac = list(yaml.safe_load_all(f))
+            
+            # Find ClusterRole with manager permissions
+            manager_rules = []
+            for doc in generated_rbac:
+                if doc and doc.get('kind') == 'ClusterRole' and 'manager' in doc.get('metadata', {}).get('name', ''):
+                    manager_rules = doc.get('rules', [])
+                    break
+            
+            if manager_rules:
+                # Read current RBAC template
+                with open('charts/operator/templates/rbac.yaml', 'r') as f:
+                    content = f.read()
+                
+                # Convert rules to YAML string
+                rules_yaml = yaml.dump(manager_rules, default_flow_style=False, indent=2)
+                
+                # Update the manager role rules in the template
+                # This is a simple approach - in production you'd want more sophisticated parsing
+                pattern = r'({{- if \.Values\.rbac\.create }}.*?rules:\s*\n)(.*?)(\n- apiGroups:.*?- access\.cloudnimbus\.io)'
+                
+                replacement = f'\\1{rules_yaml}\\3'
+                updated_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+                
+                if updated_content != content:
+                    with open('charts/operator/templates/rbac.yaml', 'w') as f:
+                        f.write(updated_content)
+                    print("Updated RBAC template with generated rules")
+                else:
+                    print("RBAC template already up to date")
+            else:
+                print("No manager ClusterRole found in generated RBAC")
+                
+        except Exception as e:
+            print(f"Error updating RBAC: {e}")
+            print("Continuing without RBAC update")
+        EOF
+        fi
+
+    - name: Update chart versions
+      run: |
+        cd charts
+        
+        # Update operator chart version
+        if [ -f "operator/Chart.yaml" ]; then
+          CURRENT_VERSION=$(yq eval '.version' operator/Chart.yaml)
+          NEW_VERSION=$(echo $CURRENT_VERSION | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
+          yq eval '.version = "'$NEW_VERSION'"' -i operator/Chart.yaml
+          echo "Updated operator chart to version $NEW_VERSION"
+          
+          # Update parent chart dependency version
+          if [ -f "firedoor/Chart.yaml" ]; then
+            yq eval '.dependencies[0].version = "'$NEW_VERSION'"' -i firedoor/Chart.yaml
+            
+            # Update parent chart version
+            PARENT_VERSION=$(yq eval '.version' firedoor/Chart.yaml)
+            NEW_PARENT_VERSION=$(echo $PARENT_VERSION | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
+            yq eval '.version = "'$NEW_PARENT_VERSION'"' -i firedoor/Chart.yaml
+            echo "Updated parent chart to version $NEW_PARENT_VERSION"
+          fi
+        fi
+
+    - name: Install Helm and validate charts
+      run: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        
+        cd charts
+        
+        # Lint charts
+        if [ -d "operator" ]; then
+          helm lint operator
+        fi
+        
+        if [ -d "firedoor" ]; then
+          # Update dependencies first
+          cd firedoor
+          helm dependency update
+          cd ..
+          
+          # Then lint
+          helm lint firedoor
+          
+          # Test template rendering
+          helm template test firedoor > /tmp/test-output.yaml
+          echo "Chart templates generated successfully"
+        fi
+
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.CHARTS_REPO_TOKEN }}
+        path: charts
+        commit-message: "feat: sync charts from firedoor@${{ github.sha }}"
+        title: "🔄 Sync Helm charts from firedoor"
+        body: |
+          ## 🔄 Automatic Chart Sync
+          
+          This PR automatically syncs the Helm charts from the firedoor repository.
+          
+          **Source**: `Star-Nimbus/firedoor@${{ github.sha }}`
+          **Trigger**: Changes in `${{ github.event_name }}`
+          
+          ### 📋 Changes
+          - 📦 Updated chart templates from firedoor config
+          - 🔧 Regenerated CRD definitions
+          - 🔐 Updated RBAC permissions
+          - 📈 Incremented chart versions
+          - ✅ Validated chart templates
+          
+          ### 🧪 Validation
+          - [x] Helm lint passed
+          - [x] Template rendering successful
+          - [x] Chart dependencies updated
+          
+          ### 🔍 Files Changed
+          ```
+          ${{ steps.changes.outputs.files }}
+          ```
+          
+          ---
+          
+          🤖 This PR was created automatically by the sync-charts workflow.
+          
+          **Review checklist:**
+          - [ ] Chart versions are correctly incremented
+          - [ ] CRD definitions are up to date
+          - [ ] RBAC permissions are appropriate
+          - [ ] Template rendering works correctly
+        branch: sync-charts-${{ github.run_number }}
+        delete-branch: true
+        draft: false
+
+    - name: Add labels to PR
+      if: steps.create-pr.outputs.pull-request-number
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.CHARTS_REPO_TOKEN }}
+        script: |
+          github.rest.issues.addLabels({
+            owner: 'Star-Nimbus',
+            repo: 'charts',
+            issue_number: ${{ steps.create-pr.outputs.pull-request-number }},
+            labels: ['automated', 'sync', 'firedoor']
+          });
+
+    - name: Notify on success
+      if: success()
+      run: |
+        echo "✅ Charts successfully synced to charts repository"
+        echo "🔗 Repository: https://github.com/Star-Nimbus/charts"
+        if [ -n "${{ steps.create-pr.outputs.pull-request-url }}" ]; then
+          echo "📝 Pull Request: ${{ steps.create-pr.outputs.pull-request-url }}"
+        fi
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ Failed to sync charts to charts repository"
+        echo "🔍 Check the workflow logs for details"
+        exit 1
+
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -rf temp-manifests/ 

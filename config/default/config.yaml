@@ -1,0 +1,36 @@
+# Default configuration for development
+otel:
+  # Disable OpenTelemetry tracing by default
+  enabled: false
+  
+  # Exporter type (not used when disabled)
+  exporter: stdout
+  
+  # Local endpoint (not used when disabled)
+  endpoint: http://localhost:4318/v1/traces
+  
+  # Service name for identifying traces
+  service: firedoor-operator
+
+# Manager configuration
+manager:
+  # Disable leader election for dev (single instance)
+  leader_elect: false
+
+# Metrics configuration
+metrics:
+  # Bind to all interfaces for dev access
+  bind_address: "0.0.0.0:8080"
+  
+  # Disable secure metrics for dev
+  secure: false
+
+# Health probe configuration
+health:
+  # Bind to all interfaces for dev access
+  probe_bind_address: "0.0.0.0:8081"
+
+# HTTP configuration
+http:
+  # Enable HTTP/2 for dev
+  enable_http2: false 

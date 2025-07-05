@@ -1,0 +1,75 @@
+name: Release Charts
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      chart_version:
+        description: 'Chart version to release'
+        required: false
+        default: 'auto'
+
+jobs:
+  trigger-chart-release:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get release version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" == "release" ]; then
+          VERSION="${{ github.event.release.tag_name }}"
+          # Remove 'v' prefix if present
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        elif [ "${{ github.event.inputs.chart_version }}" != "auto" ]; then
+          echo "version=${{ github.event.inputs.chart_version }}" >> $GITHUB_OUTPUT
+        else
+          # Use current date/time as version
+          echo "version=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Trigger chart release workflow
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.CHARTS_REPO_TOKEN }}
+        script: |
+          const result = await github.rest.actions.createWorkflowDispatch({
+            owner: 'Star-Nimbus',
+            repo: 'charts',
+            workflow_id: 'release.yml',
+            ref: 'main',
+            inputs: {
+              firedoor_version: '${{ steps.version.outputs.version }}',
+              triggered_by: 'firedoor-release',
+              source_commit: '${{ github.sha }}'
+            }
+          });
+          
+          console.log('Triggered chart release workflow');
+          console.log('Response:', result);
+
+    - name: Create sync PR if needed
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.CHARTS_REPO_TOKEN }}
+        script: |
+          // First trigger the sync workflow to ensure charts are up to date
+          await github.rest.actions.createWorkflowDispatch({
+            owner: 'Star-Nimbus',
+            repo: 'firedoor',
+            workflow_id: 'sync-charts.yml',
+            ref: '${{ github.ref }}',
+            inputs: {}
+          });
+          
+          console.log('Triggered sync-charts workflow to update charts before release');
+
+    - name: Notify
+      run: |
+        echo "🚀 Chart release triggered for version ${{ steps.version.outputs.version }}"
+        echo "📊 Charts repository: https://github.com/Star-Nimbus/charts"
+        echo "🔄 Check the charts repository for the release workflow progress" 
