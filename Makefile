@@ -81,7 +81,15 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
+
+.PHONY: test-short
+test-short: manifests generate fmt vet envtest ## Run tests with short timeout.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -short -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
+
+.PHONY: test-parallel
+test-parallel: manifests generate fmt vet envtest ## Run tests in parallel.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -race -coverprofile cover.out -covermode=atomic -parallel 4 $$(go list ./... | grep -v /e2e)
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
@@ -96,9 +104,35 @@ test-e2e-skaffold:
 lint: golangci-lint ## Run golangci-lint linter & yamllint
 	$(GOLANGCI_LINT) run
 
+.PHONY: lint-fast
+lint-fast: golangci-lint ## Run golangci-lint with fast mode (fewer linters)
+	$(GOLANGCI_LINT) run --fast
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
+
+.PHONY: lint-yaml
+lint-yaml: ## Run YAML linting
+	yamllint -c .yamllint config/ || true
+
+.PHONY: lint-helm
+lint-helm: ## Run Helm chart linting
+	find . -name "Chart.yaml" -exec dirname {} \; | while read chart; do \
+		echo "Linting chart: $$chart"; \
+		helm lint "$$chart" || true; \
+	done
+
+
+
+.PHONY: setup-hooks
+setup-hooks: install-lefthook ## Set up Git hooks with Lefthook
+	@echo "Setting up Git hooks..."
+	@lefthook install
+	@echo "✅ Git hooks installed successfully!"
+
+.PHONY: hooks
+hooks: setup-hooks ## Alias for setup-hooks
 
 ##@ Build
 

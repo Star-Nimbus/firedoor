@@ -1,0 +1,108 @@
+# Lefthook configuration for Git hooks
+# https://github.com/evilmartians/lefthook
+
+# Global settings
+skip_output:
+  - meta
+  - success
+
+# Pre-commit hook - runs before each commit
+pre-commit:
+  parallel: true
+  commands:
+    # Go code linting (fast mode)
+    golangci-lint:
+      glob: "*.go"
+      run: make lint-fast
+      stage_fixed: true
+
+    # Go code formatting
+    go-fmt:
+      glob: "*.go"
+      run: make fmt
+      stage_fixed: true
+
+    # Go code analysis
+    go-vet:
+      glob: "*.go"
+      run: make vet
+
+    # YAML linting
+    yaml-lint:
+      glob: "*.{yml,yaml}"
+      run: make lint-yaml
+
+    # Helm chart linting
+    helm-lint:
+      glob: "**/Chart.yaml"
+      run: make lint-helm
+
+    # Check for TODO/FIXME comments
+    todo-check:
+      glob: "*.{go,yml,yaml,md}"
+      run: |
+        if grep -r "TODO\|FIXME" . --exclude-dir={.git,bin,node_modules,vendor} --exclude={*.log,*.tmp}; then
+          echo "⚠️  Found TODO/FIXME comments. Consider addressing them before committing."
+          exit 0  # Don't fail the commit, just warn
+        fi
+
+# Pre-push hook - runs before pushing
+pre-push:
+  commands:
+    # Run full test suite
+    test:
+      run: make test
+
+    # Run full linting
+    lint:
+      run: make lint
+
+# Commit-msg hook - validates commit messages
+commit-msg:
+  commands:
+    # Check commit message format
+    commit-message:
+      run: |
+        # Check if commit message follows conventional commits format
+        if ! echo "$(cat $1)" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+"; then
+          echo "❌ Commit message should follow conventional commits format:"
+          echo "   <type>(<scope>): <description>"
+          echo "   Examples:"
+          echo "   - feat: add new feature"
+          echo "   - fix(auth): resolve login issue"
+          echo "   - docs: update README"
+          echo "   - chore: update dependencies"
+          exit 1
+        fi
+
+# Post-commit hook - runs after commit
+post-commit:
+  commands:
+    # Show commit summary
+    commit-summary:
+      run: |
+        echo "✅ Commit successful!"
+        echo "📝 Commit: $(git log -1 --pretty=format:'%h - %s')"
+        echo "👤 Author: $(git log -1 --pretty=format:'%an')"
+        echo "📅 Date: $(git log -1 --pretty=format:'%ad')"
+
+# Post-merge hook - runs after merge
+post-merge:
+  commands:
+    # Update dependencies after merge
+    update-deps:
+      run: |
+        echo "🔄 Updating dependencies after merge..."
+        go mod tidy
+        go mod download
+
+# Post-checkout hook - runs after checkout
+post-checkout:
+  commands:
+    # Rebuild tools after branch switch
+    rebuild-tools:
+      run: |
+        echo "🔧 Rebuilding development tools..."
+        make golangci-lint
+        make controller-gen
+        make kustomize 

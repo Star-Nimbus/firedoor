@@ -1,0 +1,86 @@
+extends: default
+
+rules:
+  # 80 chars should be enough, but don't fail if a line is longer
+  line-length: disable
+  
+  # Allow both Unix-style and Windows-style line endings
+  line-ending: disable
+  
+  # Allow trailing spaces
+  trailing-spaces: disable
+  
+  # Allow comments to be indented
+  comments-indentation: disable
+  
+  # Allow empty lines at the end of files
+  empty-lines: disable
+  
+  # Allow empty values
+  empty-values: disable
+  
+  # Allow hyphens in keys
+  hyphens: disable
+  
+  # Allow indentation with spaces
+  indentation: disable
+  
+  # Allow key-duplicates
+  key-duplicates: disable
+  
+  # Allow new-line-at-end-of-file
+  new-line-at-end-of-file: disable
+  
+  # Allow new-lines
+  new-lines: disable
+  
+  # Allow trailing spaces
+  trailing-spaces: disable
+  
+  # Allow truthy values
+  truthy: disable
+  
+  # Allow document-start
+  document-start: disable
+  
+  # Allow document-end
+  document-end: disable
+  
+  # Allow braces
+  braces: disable
+  
+  # Allow brackets
+  brackets: disable
+  
+  # Allow colons
+  colons: disable
+  
+  # Allow commas
+  commas: disable
+  
+  # Allow comments
+  comments: disable
+  
+  # Allow document separators
+  document-separator: disable
+  
+  # Allow empty lines
+  empty-lines: disable
+  
+  # Allow hyphens
+  hyphens: disable
+  
+  # Allow indentation
+  indentation: disable
+  
+  # Allow key ordering
+  key-ordering: disable
+  
+  # Allow line length
+  line-length: disable
+  
+  # Allow new lines
+  new-lines: disable
+  
+  # Allow trailing spaces
+  trailing-spaces: disable 
