@@ -2,88 +2,116 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
   release:
-    types: [ published ]
+    types: [published]
+
+# Cancel older, in‑flight runs on the same ref to save minutes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+# ---------------------------------------------------------------------------
+# 1. Lint stage – matrix fan‑out (Go, YAML, Helm)
+# ---------------------------------------------------------------------------
 jobs:
-  # Test stage
-  test:
+  lint:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [go, yaml, helm]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Go
+      # Common Go tool‑chain. NOP for yaml/helm targets.
+      - name: Set up Go (cached)
+        if: matrix.target == 'go'
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
           cache: true
 
-      - name: Cache Go modules
-        uses: actions/cache@v4
+      # Install golangci‑lint once per Go job (cached by actions/cache internally).
+      - name: Install golangci-lint
+        if: matrix.target == 'go'
+        uses: golangci/golangci-lint-action@v6
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ hashFiles('go.mod') }}
-            ${{ runner.os }}-go-
+          version: v1.57.2
+          args: --timeout=10m --verbose
 
-      - name: Run linting
-        run: make lint
+      - name: Run linters
+        run: |
+          case "${{ matrix.target }}" in
+            go)
+              make lint ;;
+            yaml)
+              pipx run yamllint -c .yamllint config/ ;;
+            helm)
+              pipx run shyaml -h >/dev/null 2>&1 || pipx install shyaml
+              helm version || true
+              helm lint $(find . -name Chart.yaml -exec dirname {} \;) ;;
+          esac
 
-      - name: Run unit tests
+  # -------------------------------------------------------------------------
+  # 2. Unit tests (needs all lint targets)
+  # -------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests with coverage
         run: make test
 
-      - name: Upload coverage reports
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           files: ./cover.out
           flags: unittests
-          name: codecov-umbrella
 
-  # E2E testing stage
+      - name: Persist coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: cover.out
+
+  # -------------------------------------------------------------------------
+  # 3. End‑to‑end tests inside Kind
+  # -------------------------------------------------------------------------
   e2e-test:
     runs-on: ubuntu-latest
     needs: test
+    services:
+      kind:
+        image: kindest/node:v1.29.2
+        options: >-
+          --health-cmd="kubectl get nodes" --health-interval=30s --health-timeout=5s --health-retries=5
+        ports:
+          - 6443:6443
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
           cache: true
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ hashFiles('go.mod') }}
-            ${{ runner.os }}-go-
-
-      - name: Set up Kind
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: kind
-          node_image: kindest/node:v1.29.2
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -92,110 +120,71 @@ jobs:
         run: make manifests
 
       - name: Run e2e tests
+        env:
+          KUBECONFIG: /home/runner/.kube/config
         run: make test-e2e
 
-  # Build stage
+  # -------------------------------------------------------------------------
+  # 4. Build and push container image (only on push / release, not PR)
+  # -------------------------------------------------------------------------
   build:
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name != 'pull_request'
     outputs:
-      image: ${{ steps.image.outputs.image }}
+      image: ${{ steps.meta.outputs.image }}
       digest: ${{ steps.build.outputs.digest }}
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
           cache: true
 
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ hashFiles('go.mod') }}
-            ${{ runner.os }}-go-
-
-      - name: Set up Skaffold
+      - name: Generate version / metadata
+        id: meta
         run: |
-          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64
-          chmod +x skaffold
-          sudo mv skaffold /usr/local/bin
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate version information
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            VERSION=${{ github.event.release.tag_name }}
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
           else
             VERSION=$(scripts/version.sh version)
           fi
           COMMIT=$(scripts/version.sh commit)
           DATE=$(scripts/version.sh date)
-          BUILD_BY="github-actions"
-          GITHUB_AUTHOR="${{ github.actor }} <${{ github.event.pusher.email }}>"
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
-          echo "date=${DATE}" >> $GITHUB_OUTPUT
-          echo "build_by=${BUILD_BY}" >> $GITHUB_OUTPUT
-          echo "github_author=${GITHUB_AUTHOR}" >> $GITHUB_OUTPUT
+          echo "version=$VERSION"       >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT"         >> $GITHUB_OUTPUT
+          echo "date=$DATE"             >> $GITHUB_OUTPUT
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
 
-      - name: Set image name
-        id: image
-        run: |
-          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          echo "image=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+      - name: Log in to GHCR via OIDC
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          logout: true
 
-      - name: Generate manifests
-        run: make manifests
+      - name: Set up Skaffold
+        uses: skaffold/actions/setup@v2
+        with:
+          version: latest
 
-      - name: Build and push image with Skaffold
+      - name: Build & push image
         id: build
         env:
-          KO_DOCKER_REPO: ${{ steps.image.outputs.image }}
-          VERSION: ${{ steps.version.outputs.version }}
-          COMMIT: ${{ steps.version.outputs.commit }}
-          DATE: ${{ steps.version.outputs.date }}
-          BUILD_BY: ${{ steps.version.outputs.build_by }}
-          GITHUB_AUTHOR: ${{ steps.version.outputs.github_author }}
-          IMAGE_NAME: ${{ steps.image.outputs.image }}
+          KO_DOCKER_REPO: ${{ steps.meta.outputs.image }}
         run: |
-          # Build with Skaffold using ci-cd profile and capture output
-          BUILD_OUTPUT=$(skaffold build \
-            --profile=ci-cd \
-            --tag=${{ steps.version.outputs.version }} \
-            --push \
-            --output='{{range .}}{{.Tag}}@{{.Digest}}{{end}}')
-          
-          echo "Built image: ${BUILD_OUTPUT}"
-          
-          # Extract digest from the output
-          DIGEST=$(echo ${BUILD_OUTPUT} | cut -d'@' -f2)
-          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
-          
-          # Also output the full image reference
-          echo "image_with_digest=${BUILD_OUTPUT}" >> $GITHUB_OUTPUT
+          BUILD=$(skaffold build --profile=ci-cd \
+            --tag ${{ steps.meta.outputs.version }} \
+            --tag ${{ github.sha }} \
+            --push --output='{{range .}}{{.Tag}}@{{.Digest}}{{end}}')
+          echo "digest=$(echo $BUILD | cut -d'@' -f2)" >> $GITHUB_OUTPUT
 
-  # Semantic versioning and release
+  # -------------------------------------------------------------------------
+  # 5. Semantic‑release (tag + changelog) – main branch only
+  # -------------------------------------------------------------------------
   release:
     runs-on: ubuntu-latest
     needs: [test, e2e-test, build]
@@ -204,118 +193,71 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-    outputs:
-      released: ${{ steps.release.outputs.new_release_published }}
-      version: ${{ steps.release.outputs.new_release_version }}
-      tag: ${{ steps.release.outputs.new_release_git_tag }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Install semantic-release
-        run: |
-          npm install -g semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github
-
+          node-version: 20
+          cache: npm
       - name: Release
-        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          semantic-release
+        run: npx semantic-release
 
-  # Update Skaffold and deploy to dev
+  # -------------------------------------------------------------------------
+  # 6. Deploy to dev (develop branch pushes)
+  # -------------------------------------------------------------------------
   deploy-dev:
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: build
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Skaffold
-        run: |
-          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64
-          chmod +x skaffold
-          sudo mv skaffold /usr/local/bin
-
-      - name: Deploy to dev environment
+      - uses: actions/checkout@v4
+      - uses: skaffold/actions/setup@v2
+        with:
+          version: latest
+      - name: Deploy to dev
         env:
           KO_DOCKER_REPO: ${{ needs.build.outputs.image }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          # Validate Skaffold configuration
-          skaffold diagnose
-          
-          # Use the dev profile for deployment
-          # This would typically deploy to a dev cluster
-          echo "Would deploy to dev environment using:"
-          echo "Image: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}"
-          echo "Version: ${{ needs.build.outputs.version }}"
-          
-          # Example deployment command (uncomment when you have a dev cluster):
-          # skaffold deploy --profile=dev --images=firedoor-operator=${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+          skaffold deploy --profile=dev \
+            --images firedoor-operator=${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
 
-  # Deploy to production on release
+  # -------------------------------------------------------------------------
+  # 7. Deploy to prod after successful release
+  # -------------------------------------------------------------------------
   deploy-prod:
     runs-on: ubuntu-latest
-    needs: [release]
-    if: needs.release.outputs.released == 'true'
+    needs: release
+    if: needs.release.result == 'success'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Skaffold
-        run: |
-          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64
-          chmod +x skaffold
-          sudo mv skaffold /usr/local/bin
-
+      - uses: actions/checkout@v4
+      - uses: skaffold/actions/setup@v2
+        with:
+          version: latest
       - name: Deploy to production
         env:
           KO_DOCKER_REPO: ghcr.io/cloud-nimbus/firedoor
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.release.outputs.new_release_version }}
         run: |
-          # Validate Skaffold configuration
-          skaffold diagnose
-          
-          # This would typically deploy to a production cluster
-          echo "Would deploy to production using:"
-          echo "Version: ${{ needs.release.outputs.version }}"
-          echo "Tag: ${{ needs.release.outputs.tag }}"
-          
-          # Example deployment command (uncomment when you have a production cluster):
-          # skaffold deploy --images=firedoor-operator=ghcr.io/cloud-nimbus/firedoor:${{ needs.release.outputs.version }}
+          skaffold deploy --images firedoor-operator=ghcr.io/cloud-nimbus/firedoor:${{ env.VERSION }}
 
-  # Security scanning
+  # -------------------------------------------------------------------------
+  # 8. Security scan (Trivy) – runs in parallel to release/deploy
+  # -------------------------------------------------------------------------
   security:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name != 'pull_request'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
+          format: sarif
+          output: trivy-results.sarif
+      - uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: 'trivy-results.sarif'
-          
-      - name: Run Trivy vulnerability scanner (Table format)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
-          format: 'table' 
+          sarif_file: trivy-results.sarif
