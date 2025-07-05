@@ -1,0 +1,21 @@
+# Metrics values for firedoor operator
+# Configuration for development with metrics and monitoring
+
+# Metrics configuration
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    namespace: metrics-system
+
+# Health probe configuration
+healthProbe:
+  enabled: true
+
+# Leader election
+leaderElection:
+  enabled: true
+
+# OpenTelemetry configuration
+openTelemetry:
+  enabled: false 

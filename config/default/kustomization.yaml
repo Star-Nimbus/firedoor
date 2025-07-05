@@ -24,9 +24,20 @@ resources:
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
 #- ../certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-- ../prometheus
+#- ../prometheus
 
-patches:
+# Include base component to remove configmap volume mount
+components:
+- ../components/base
+
+# No configmap needed - using command line args
+# configMapGenerator:
+# - name: firedoor-config
+#   files:
+#   - config.yaml
+#   behavior: replace
+
+# patches:
 # [METRICS] The following patch will enable the metrics endpoint. Ensure that you also protect this endpoint.
 # More info: https://book.kubebuilder.io/reference/metrics
 # If you want to expose the metric endpoint of your controller-manager uncomment the following line.

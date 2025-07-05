@@ -1,0 +1,20 @@
+# Development values for firedoor operator
+# Basic configuration for local development
+
+# Metrics configuration
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false  # Disable ServiceMonitor in dev unless metrics profile is used
+
+# Health probe configuration
+healthProbe:
+  enabled: true
+
+# Leader election
+leaderElection:
+  enabled: true
+
+# OpenTelemetry configuration
+openTelemetry:
+  enabled: false 

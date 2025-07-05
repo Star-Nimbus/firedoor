@@ -19,15 +19,18 @@ issues:
 linters:
   disable-all: true
   enable:
+    - gocognit
     - dupl
     - errcheck
-    - exportloopref
+    - copyloopvar
     - goconst
     - gocyclo
     - gofmt
     - goimports
     - gosimple
     - govet
+    - gocritic
+    - gosec
     - ineffassign
     - lll
     - misspell

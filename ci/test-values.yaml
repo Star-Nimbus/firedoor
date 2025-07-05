@@ -1,0 +1,74 @@
+# Test values for firedoor chart
+operator:
+  enabled: true
+  
+  image:
+    repository: firedoor
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  controller:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 200m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+  
+  metrics:
+    enabled: true
+    port: 8080
+    serviceMonitor:
+      enabled: false
+  
+  healthProbe:
+    port: 8081
+  
+  leaderElection:
+    enabled: false  # Disable for testing
+  
+  openTelemetry:
+    enabled: false  # Disable for testing
+  
+  # Security contexts for testing
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  
+  podSecurityContext:
+    fsGroup: 65532
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  
+  rbac:
+    create: true
+  
+  crds:
+    install: true
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  # Disable features not needed for testing
+  podDisruptionBudget:
+    enabled: false
+  
+  hpa:
+    enabled: false 

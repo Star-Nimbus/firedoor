@@ -1,19 +1,25 @@
 apiVersion: skaffold/v4beta6
 kind: Config
 metadata:
-  name: app
+  name: firedoor
 build:
   platforms: ["linux/amd64", "linux/arm64"]
+  tagPolicy:
+    gitCommit:
+      variant: AbbrevCommitSha
   artifacts:
-    - image: firedoor-operator
+    - image: star-nimbus.io/firedoor-operator
       context: .
       ko:
         fromImage: gcr.io/distroless/static:nonroot
         labels:
-          org.opencontainers.image.source: https://github.com/cloudnimbus/firedoor
+          org.opencontainers.image.source: https://github.com/cloud-nimbus/firedoor
           org.opencontainers.image.description: Firedoor is a Kubernetes operator for managing breakglass access to the cluster.
           org.opencontainers.image.licenses: Apache-2.0
           org.opencontainers.image.vendor: Cloud Nimbus
+          org.opencontainers.image.title: Firedoor Operator
+          org.opencontainers.image.documentation: https://github.com/cloud-nimbus/firedoor/blob/main/README.md
+          org.opencontainers.image.authors: Matthew McLeod <mail@matthewmcleod.co.uk>
         dependencies:
           paths:
               - cmd
@@ -23,46 +29,156 @@ build:
         ldflags:
           - -s
           - -w
+          - -X github.com/cloud-nimbus/firedoor/cmd/cli.Version={{.VERSION}}
+          - -X github.com/cloud-nimbus/firedoor/cmd/cli.Commit={{.COMMIT}}
+          - -X github.com/cloud-nimbus/firedoor/cmd/cli.Date={{.DATE}}
+          - -X github.com/cloud-nimbus/firedoor/cmd/cli.BuildBy=skaffold
         main: ./cmd
+        env:
+          - CGO_ENABLED=0
+manifests:
+  # Install CRDs first as a dependency
+  kustomize:
+    paths:
+      - config/crd
+deploy:
+  kubectl: {}
+  helm:
+    releases:
+      - name: monitoring
+        remoteChart: kube-prometheus-stack
+        namespace: metrics-system
+        createNamespace: true
+        repo: https://prometheus-community.github.io/helm-charts
+        valuesFiles:
+          - config/prometheus/dev.yaml
+      - name: otel-collector
+        remoteChart: opentelemetry-collector
+        namespace: telemetry-system
+        createNamespace: true
+        repo: https://open-telemetry.github.io/opentelemetry-helm-charts
+        valuesFiles:
+          - config/telemetry/otel-collector-values.yaml
+      - name: tempo
+        remoteChart: tempo-distributed
+        namespace: telemetry-system
+        createNamespace: true
+        repo: https://grafana.github.io/helm-charts
+        valuesFiles:
+          - config/tempo/dev.yaml
+      - name: firedoor-operator
+        chartPath: config/chart/
+        namespace: firedoor-system
+        createNamespace: true
+        setValueTemplates:
+          image.repository: "{{.IMAGE_REPO_star_nimbus_io_firedoor_operator}}"
+          image.tag: "{{.IMAGE_TAG_star_nimbus_io_firedoor_operator}}@{{.IMAGE_DIGEST_star_nimbus_io_firedoor_operator}}"
+          image.pullPolicy: IfNotPresent
+        valuesFiles:
+          - config/chart/values/all.yaml
+    hooks:
+      before: []
+      after:
+        - host:
+            command:
+              - sh
+              - -c
+              - |
+                kubectl get secret --namespace metrics-system monitoring-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+portForward:
+- resourceName: monitoring-grafana
+  resourceType: service
+  port: 80
+  namespace: metrics-system
+  localPort: 3000
+  address: 127.0.0.1
+- resourceName: monitoring-kube-prometheus-prometheus
+  resourceType: service
+  port: 9090
+  namespace: metrics-system
+  localPort: 9090
+  address: 127.0.0.1
+- resourceName: tempo-query-frontend
+  resourceType: service
+  port: 3200
+  namespace: telemetry-system
+  localPort: 3200
+  address: 127.0.0.1
+
 profiles:
+  - name: ci-cd
+    build:
+      platforms: ["linux/amd64", "linux/arm64"]
+      tagPolicy:
+        envTemplate:
+          template: "{{.VERSION}}"
+      artifacts:
+        - image: firedoor-operator
+          context: .
+          ko:
+            fromImage: gcr.io/distroless/static:nonroot
+            labels:
+              org.opencontainers.image.source: https://github.com/cloud-nimbus/firedoor
+              org.opencontainers.image.description: Firedoor is a Kubernetes operator for managing breakglass access to the cluster.
+              org.opencontainers.image.licenses: Apache-2.0
+              org.opencontainers.image.vendor: Cloud Nimbus
+              org.opencontainers.image.title: Firedoor Operator
+              org.opencontainers.image.documentation: https://github.com/cloud-nimbus/firedoor/blob/main/README.md
+              org.opencontainers.image.authors: "{{.GITHUB_AUTHOR}}"
+              org.opencontainers.image.version: "{{.VERSION}}"
+              org.opencontainers.image.revision: "{{.COMMIT}}"
+              org.opencontainers.image.created: "{{.DATE}}"
+            dependencies:
+              paths:
+                  - cmd
+                  - go.mod
+                  - internal
+                  - api
+            ldflags:
+              - -s
+              - -w
+              - -X github.com/cloud-nimbus/firedoor/cmd/cli.Version={{.VERSION}}
+              - -X github.com/cloud-nimbus/firedoor/cmd/cli.Commit={{.COMMIT}}
+              - -X github.com/cloud-nimbus/firedoor/cmd/cli.Date={{.DATE}}
+              - -X github.com/cloud-nimbus/firedoor/cmd/cli.BuildBy={{.BUILD_BY}}
+            main: ./cmd
+            env:
+              - CGO_ENABLED=0
+  - name: telemetry
+  - name: metrics
+    patches:
+      - op: replace
+        path: /deploy/helm/releases/3/valuesFiles/0
+        value: config/chart/values/metrics.yaml
+      # remove otel-collector
+      - op: remove
+        path: /deploy/helm/releases/1
+      # remove tempo
+      - op: remove
+        path: /deploy/helm/releases/1
+      - op: remove
+        path: /portForward/2
   - name: dev
-    activation:
-      - kubeContext: minikube
-      - kubeContext: kind-kind
-    requiresAllActivations: false
-    manifests:
-      kustomize:
-        paths:
-          - config/default
-    deploy:
-      helm:
-        releases:
-          - name: monitoring
-            remoteChart: kube-prometheus-stack
-            namespace: monitoring
-            createNamespace: true
-            repo: https://prometheus-community.github.io/helm-charts
-            valuesFiles:
-              - config/prometheus/dev.yaml
-        hooks:
-          after:
-            - host:
-                command:
-                  - sh
-                  - -c
-                  - |
-                    kubectl get secret --namespace monitoring monitoring-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
-      kubectl: {}
-    portForward:
-    - resourceName: monitoring-grafana
-      resourceType: service
-      port: 80
-      namespace: monitoring
-      localPort: 3000
-      address: 127.0.0.1
-    - resourceName: monitoring-kube-prometheus-prometheus
-      resourceType: service
-      port: 9090
-      namespace: monitoring
-      localPort: 9090
-      address: 127.0.0.1
+    patches:
+      - op: replace
+        path: /deploy/helm/releases/3/valuesFiles/0
+        value: config/chart/values/dev.yaml
+      # remove monitoring
+      - op: remove
+        path: /deploy/helm/releases/0
+      # remove otel-collector
+      - op: remove
+        path: /deploy/helm/releases/0
+      # remove tempo
+      - op: remove
+        path: /deploy/helm/releases/0
+      - op: replace
+        path: /deploy/helm/hooks/after
+        value: []
+      - op: replace
+        path: /portForward
+        value: []
+
+
+

@@ -5,13 +5,13 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: firedoor
     app.kubernetes.io/managed-by: kustomize
-  name: system
+  name: firedoor-system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: controller-manager
-  namespace: system
+  namespace: firedoor-system
   labels:
     control-plane: controller-manager
     app.kubernetes.io/name: firedoor
@@ -59,8 +59,9 @@ spec:
         #   type: RuntimeDefault
       containers:
       - command:
-        - /manager
+        - /ko-app/cmd
         args:
+          - manager
           - --leader-elect
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=0.0.0.0:8080
@@ -92,5 +93,13 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+        volumeMounts:
+        - name: config
+          mountPath: /etc/firedoor
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: firedoor-config
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
