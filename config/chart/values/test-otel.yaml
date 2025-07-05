@@ -1,0 +1,19 @@
+# Test OpenTelemetry configuration
+# This file tests only the OpenTelemetry functionality
+
+# OpenTelemetry configuration
+openTelemetry:
+  enabled: true
+  exporter: otlp
+  endpoint: "http://test-collector:4317"
+  service: firedoor-operator
+
+# Disable other features for testing
+metrics:
+  enabled: false
+
+healthProbe:
+  enabled: false
+
+leaderElection:
+  enabled: false 

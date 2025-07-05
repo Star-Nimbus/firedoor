@@ -20,4 +20,4 @@ openTelemetry:
   enabled: true
   exporter: otlp
   endpoint: "http://otel-collector.telemetry-system.svc.cluster.local:4317"
-  insecure: true 
+  service: firedoor-operator 

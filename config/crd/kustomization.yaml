@@ -3,7 +3,6 @@
 # It should be run by config/default
 resources:
 - bases/access.cloudnimbus.io_breakglasses.yaml
-#+kubebuilder:scaffold:crdkustomizeresource
 
 # patches:
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.

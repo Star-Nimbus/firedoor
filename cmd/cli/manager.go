@@ -46,6 +46,13 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
+const (
+	// Manager command descriptions
+	managerCmdShort = "Start the Firedoor controller manager"
+	managerCmdLong  = `Start the Firedoor controller manager which watches for Breakglass resources
+and manages their lifecycle in the Kubernetes cluster.`
+)
+
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
@@ -62,9 +69,8 @@ func init() {
 func newManagerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "manager",
-		Short: "Start the Firedoor controller manager",
-		Long: `Start the Firedoor controller manager which watches for Breakglass resources
-and manages their lifecycle in the Kubernetes cluster.`,
+		Short: managerCmdShort,
+		Long:  managerCmdLong,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runManager(cmd.Context(), cfg)
 		},

@@ -61,6 +61,12 @@ version: ## Display version information.
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
+.PHONY: sync-crd
+sync-crd: ## Sync CRD from base to Helm chart template
+	@echo "🔄 Syncing CRD to Helm chart..."
+	@chmod +x scripts/sync-crd-to-chart.sh
+	@./scripts/sync-crd-to-chart.sh
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
@@ -82,6 +88,10 @@ test: manifests generate fmt vet envtest ## Run tests.
 test-e2e:
 	go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: test-e2e-skaffold  # Run the Skaffold e2e tests against a Kind k8s instance that is spun up.
+test-e2e-skaffold:
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="Skaffold Integration"
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
 	$(GOLANGCI_LINT) run
@@ -93,7 +103,7 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: manifests sync-crd generate fmt vet ## Build manager binary.
 	go build $(GO_BUILD_FLAGS) -o bin/manager cmd/main.go
 
 .PHONY: build-cli

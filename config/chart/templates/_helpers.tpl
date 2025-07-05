@@ -110,23 +110,8 @@ Create the manager command arguments
 {{- if .Values.openTelemetry.endpoint }}
 - --otel-endpoint={{ .Values.openTelemetry.endpoint }}
 {{- end }}
-{{- if .Values.openTelemetry.headers }}
-- --otel-headers={{ .Values.openTelemetry.headers | toJson }}
-{{- end }}
-{{- if .Values.openTelemetry.insecure }}
-- --otel-insecure={{ .Values.openTelemetry.insecure }}
-{{- end }}
-{{- if .Values.openTelemetry.timeout }}
-- --otel-timeout={{ .Values.openTelemetry.timeout }}
-{{- end }}
-{{- if .Values.openTelemetry.compression }}
-- --otel-compression={{ .Values.openTelemetry.compression }}
-{{- end }}
-{{- if .Values.openTelemetry.sampler.type }}
-- --otel-sampler={{ .Values.openTelemetry.sampler.type }}
-{{- end }}
-{{- if .Values.openTelemetry.sampler.arg }}
-- --otel-sampler-arg={{ .Values.openTelemetry.sampler.arg }}
+{{- if .Values.openTelemetry.service }}
+- --otel-service={{ .Values.openTelemetry.service }}
 {{- end }}
 {{- end }}
 {{- end }} 
