@@ -21,30 +21,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
-)
-
-const (
-	prometheusOperatorVersion = "v0.72.0"
-	prometheusOperatorURL     = "https://github.com/prometheus-operator/prometheus-operator/" +
-		"releases/download/%s/bundle.yaml"
-
-	certmanagerVersion = "v1.14.4"
-	certmanagerURLTmpl = "https://github.com/jetstack/cert-manager/releases/download/%s/cert-manager.yaml"
 )
 
 // warnError will use the global GINKGO_WRITER to log a warning message.
 func warnError(err error) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "warning: %v\n", err)
-}
-
-// InstallPrometheusOperator installs the prometheus Operator to be used to export the enabled metrics.
-func InstallPrometheusOperator() error {
-	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	cmd := exec.Command("kubectl", "create", "-f", url)
-	_, err := Run(cmd)
-	return err
 }
 
 // Run executes the provided command within this context
@@ -65,43 +49,6 @@ func Run(cmd *exec.Cmd) ([]byte, error) {
 	}
 
 	return output, nil
-}
-
-// UninstallPrometheusOperator uninstalls the prometheus
-func UninstallPrometheusOperator() {
-	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
-	if _, err := Run(cmd); err != nil {
-		warnError(err)
-	}
-}
-
-// UninstallCertManager uninstalls the cert manager
-func UninstallCertManager() {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
-	if _, err := Run(cmd); err != nil {
-		warnError(err)
-	}
-}
-
-// InstallCertManager installs the cert manager bundle.
-func InstallCertManager() error {
-	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "apply", "-f", url)
-	if _, err := Run(cmd); err != nil {
-		return err
-	}
-	// Wait for cert-manager-webhook to be ready, which can take time if cert-manager
-	// was re-installed after uninstalling on a cluster.
-	cmd = exec.Command("kubectl", "wait", "deployment.apps/cert-manager-webhook",
-		"--for", "condition=Available",
-		"--namespace", "cert-manager",
-		"--timeout", "5m",
-	)
-
-	_, err := Run(cmd)
-	return err
 }
 
 // LoadImageToKindCluster loads a local docker image to the kind cluster
@@ -138,4 +85,59 @@ func GetProjectDir() (string, error) {
 	}
 	wd = strings.ReplaceAll(wd, "/test/e2e", "")
 	return wd, nil
+}
+
+// SkaffoldRun deploys the application using Skaffold with the specified profile
+func SkaffoldRun(profile string) error {
+	cmd := exec.Command("skaffold", "run", "--profile="+profile, "--tail=false")
+	_, err := Run(cmd)
+	return err
+}
+
+// SkaffoldDelete removes the application deployment using Skaffold
+func SkaffoldDelete(profile string) error {
+	cmd := exec.Command("skaffold", "delete", "--profile="+profile)
+	_, err := Run(cmd)
+	return err
+}
+
+// SkaffoldBuild builds the application using Skaffold without deploying
+func SkaffoldBuild(profile string) error {
+	cmd := exec.Command("skaffold", "build", "--profile="+profile)
+	_, err := Run(cmd)
+	return err
+}
+
+// SkaffoldDeploy deploys the application using Skaffold (assumes build is already done)
+func SkaffoldDeploy(profile string) error {
+	cmd := exec.Command("skaffold", "deploy", "--profile="+profile, "--tail=false")
+	_, err := Run(cmd)
+	return err
+}
+
+// WaitForSkaffoldDeployment waits for Skaffold deployment to be ready
+func WaitForSkaffoldDeployment(profile string, timeout time.Duration) error {
+	// Wait for the controller deployment to be ready
+	cmd := exec.Command("kubectl", "wait", "deployment/firedoor-controller-manager",
+		"--for", "condition=Available",
+		"--namespace", "firedoor-system",
+		"--timeout", timeout.String(),
+	)
+	_, err := Run(cmd)
+	return err
+}
+
+// CleanupSkaffoldDeployment cleans up Skaffold deployment and any test resources
+func CleanupSkaffoldDeployment(profile string) {
+	By("cleaning up Skaffold deployment")
+	if err := SkaffoldDelete(profile); err != nil {
+		warnError(fmt.Errorf("failed to delete Skaffold deployment: %w", err))
+	}
+
+	// Clean up any test resources
+	By("cleaning up test resources")
+	cmd := exec.Command("kubectl", "delete", "breakglass", "--all", "-n", "firedoor-system", "--ignore-not-found=true")
+	if _, err := Run(cmd); err != nil {
+		warnError(fmt.Errorf("failed to clean up test breakglass resources: %w", err))
+	}
 }

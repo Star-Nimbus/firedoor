@@ -24,6 +24,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	// Version command descriptions
+	versionCmdShort = "Print the version information"
+	versionCmdLong  = `Print the version information for Firedoor including:
+- Version number
+- Git commit hash
+- Build date
+- Go version used to build
+- Build platform
+- Build source`
+
+	// Flag descriptions
+	outputFormatDesc = "Output format (text, json)"
+	shortDesc        = "Print only the version number"
+)
+
 var (
 	// Version information set by ldflags during build
 	Version   = "dev"
@@ -64,14 +80,8 @@ func newVersionCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Print the version information",
-		Long: `Print the version information for Firedoor including:
-- Version number
-- Git commit hash
-- Build date
-- Go version used to build
-- Build platform
-- Build source`,
+		Short: versionCmdShort,
+		Long:  versionCmdLong,
 		Run: func(cmd *cobra.Command, args []string) {
 			out := cmd.OutOrStdout()
 			buildInfo := GetBuildInfo()
@@ -99,8 +109,8 @@ func newVersionCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format (text, json)")
-	cmd.Flags().BoolVarP(&short, "short", "s", false, "Print only the version number")
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "text", outputFormatDesc)
+	cmd.Flags().BoolVarP(&short, "short", "s", false, shortDesc)
 
 	return cmd
 }

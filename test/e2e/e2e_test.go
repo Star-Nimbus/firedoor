@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -48,12 +49,6 @@ var _ = Describe("controller", Ordered, func() {
 		clientset, err = kubernetes.NewForConfig(config)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("installing prometheus operator")
-		Expect(utils.InstallPrometheusOperator()).To(Succeed())
-
-		By("installing the cert-manager")
-		Expect(utils.InstallCertManager()).To(Succeed())
-
 		By("creating manager namespace")
 		ns := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
@@ -67,39 +62,18 @@ var _ = Describe("controller", Ordered, func() {
 		}
 	})
 
-	AfterAll(func() {
-		By("uninstalling the Prometheus manager bundle")
-		utils.UninstallPrometheusOperator()
-
-		By("uninstalling the cert-manager bundle")
-		utils.UninstallCertManager()
-	})
-
 	Context("Operator", func() {
 		It("should run successfully", func() {
-			var err error
-
-			// projectimage stores the name of the image used in the example
-			const projectimage = "star-nimbus.io/firedoor:v0.0.1"
-
-			By("building the manager(Operator) image")
-			cmd := exec.Command("make", "docker-build", "IMG="+projectimage)
-			_, err = utils.Run(cmd)
-			ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
-			By("loading the the manager(Operator) image on Kind")
-			err = utils.LoadImageToKindCluster(projectimage)
-			ExpectWithOffset(1, err).NotTo(HaveOccurred())
-
 			By("installing CRDs")
-			cmd = exec.Command("make", "install")
-			_, err = utils.Run(cmd)
+			cmd := exec.Command("make", "install")
+			_, err := utils.Run(cmd)
 			ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-			By("deploying the controller-manager")
-			cmd = exec.Command("make", "deploy", "IMG="+projectimage)
-			_, err = utils.Run(cmd)
-			ExpectWithOffset(1, err).NotTo(HaveOccurred())
+			By("deploying the controller-manager using Skaffold")
+			Expect(utils.SkaffoldRun("dev")).To(Succeed())
+
+			By("waiting for Skaffold deployment to be ready")
+			Expect(utils.WaitForSkaffoldDeployment("dev", 2*time.Minute)).To(Succeed())
 
 			By("validating that the controller-manager pod is running as expected")
 			verifyControllerUp := func() error {
@@ -134,7 +108,57 @@ var _ = Describe("controller", Ordered, func() {
 
 				return nil
 			}
-			EventuallyWithOffset(1, verifyControllerUp, time.Minute, time.Second).Should(Succeed())
+			EventuallyWithOffset(1, verifyControllerUp, time.Minute*2, time.Second).Should(Succeed())
+
+			By("cleaning up Skaffold deployment")
+			utils.CleanupSkaffoldDeployment("dev")
+		})
+
+		It("should handle breakglass CRD operations", func() {
+			By("installing CRDs")
+			cmd := exec.Command("make", "install")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("deploying the controller-manager using Skaffold")
+			Expect(utils.SkaffoldRun("dev")).To(Succeed())
+			Expect(utils.WaitForSkaffoldDeployment("dev", 2*time.Minute)).To(Succeed())
+
+			By("creating a breakglass resource")
+			breakglassYAML := `
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: test-breakglass
+  namespace: firedoor-system
+spec:
+  user: "test-user"
+  group: "test-group"
+  namespace: "default"
+  role: "admin"
+  durationMinutes: 60
+  approved: true
+  reason: "E2E test"
+`
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(breakglassYAML)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying breakglass resource is created")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "breakglass", "test-breakglass", "-n", "firedoor-system")
+				_, err := utils.Run(cmd)
+				return err
+			}, time.Minute, time.Second).Should(Succeed())
+
+			By("cleaning up test breakglass resource")
+			cmd = exec.Command("kubectl", "delete", "breakglass", "test-breakglass", "-n", "firedoor-system")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("cleaning up Skaffold deployment")
+			utils.CleanupSkaffoldDeployment("dev")
 		})
 	})
 })

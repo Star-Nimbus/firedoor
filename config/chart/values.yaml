@@ -55,13 +55,7 @@ openTelemetry:
   enabled: false
   exporter: otlp
   endpoint: ""
-  headers: {}
-  insecure: true
-  timeout: 10s
-  compression: gzip
-  sampler:
-    type: parentbased_traceidratio
-    arg: "0.1"
+  service: firedoor-operator
 
 # Security context for containers
 securityContext:

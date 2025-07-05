@@ -26,6 +26,26 @@ import (
 	"github.com/cloud-nimbus/firedoor/internal/config"
 )
 
+const (
+	// Root command descriptions
+	rootCmdShort = "Firedoor is a Kubernetes operator for managing breakglass access"
+	rootCmdLong  = `Firedoor is a Kubernetes operator that provides secure breakglass access
+to Kubernetes clusters. It allows temporary elevated access for emergency
+situations while maintaining audit trails and compliance.`
+
+	// Flag descriptions
+	configFlagDesc             = "config file (default is $HOME/.firedoor.yaml)"
+	metricsBindAddressDesc     = "The address the metric endpoint binds to"
+	healthProbeBindAddressDesc = "The address the probe endpoint binds to"
+	leaderElectDesc            = "Enable leader election for controller manager"
+	metricsSecureDesc          = "If set the metrics endpoint is served securely"
+	enableHTTP2Desc            = "If set, HTTP/2 will be enabled for the metrics and webhook servers"
+	otelEnabledDesc            = "Enable OpenTelemetry tracing"
+	otelExporterDesc           = "OpenTelemetry exporter type (otlp, stdout)"
+	otelEndpointDesc           = "OpenTelemetry OTLP endpoint"
+	otelServiceDesc            = "OpenTelemetry service name"
+)
+
 var (
 	cfgFile string
 	cfg     *config.Config
@@ -36,10 +56,8 @@ func NewRootCmd() *cobra.Command {
 	// rootCmd represents the base command when called without any subcommands
 	rootCmd := &cobra.Command{
 		Use:   "firedoor",
-		Short: "Firedoor is a Kubernetes operator for managing breakglass access",
-		Long: `Firedoor is a Kubernetes operator that provides secure breakglass access
-to Kubernetes clusters. It allows temporary elevated access for emergency
-situations while maintaining audit trails and compliance.`,
+		Short: rootCmdShort,
+		Long:  rootCmdLong,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Load configuration
 			var err error
@@ -67,20 +85,20 @@ situations while maintaining audit trails and compliance.`,
 // addPersistentFlags adds persistent flags to the root command
 func addPersistentFlags(cmd *cobra.Command) {
 	// Global flags
-	cmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.firedoor.yaml)")
+	cmd.PersistentFlags().StringVar(&cfgFile, "config", "", configFlagDesc)
 
 	// Manager flags
-	cmd.PersistentFlags().String("metrics-bind-address", ":8080", "The address the metric endpoint binds to")
-	cmd.PersistentFlags().String("health-probe-bind-address", ":8081", "The address the probe endpoint binds to")
-	cmd.PersistentFlags().Bool("leader-elect", false, "Enable leader election for controller manager")
-	cmd.PersistentFlags().Bool("metrics-secure", false, "If set the metrics endpoint is served securely")
-	cmd.PersistentFlags().Bool("enable-http2", false, "If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	cmd.PersistentFlags().String("metrics-bind-address", ":8080", metricsBindAddressDesc)
+	cmd.PersistentFlags().String("health-probe-bind-address", ":8081", healthProbeBindAddressDesc)
+	cmd.PersistentFlags().Bool("leader-elect", false, leaderElectDesc)
+	cmd.PersistentFlags().Bool("metrics-secure", false, metricsSecureDesc)
+	cmd.PersistentFlags().Bool("enable-http2", false, enableHTTP2Desc)
 
 	// OpenTelemetry flags
-	cmd.PersistentFlags().Bool("otel-enabled", false, "Enable OpenTelemetry tracing")
-	cmd.PersistentFlags().String("otel-exporter", "otlp", "OpenTelemetry exporter type (otlp, stdout)")
-	cmd.PersistentFlags().String("otel-endpoint", "http://localhost:4318/v1/traces", "OpenTelemetry OTLP endpoint")
-	cmd.PersistentFlags().String("otel-service", "firedoor-operator", "OpenTelemetry service name")
+	cmd.PersistentFlags().Bool("otel-enabled", false, otelEnabledDesc)
+	cmd.PersistentFlags().String("otel-exporter", "otlp", otelExporterDesc)
+	cmd.PersistentFlags().String("otel-endpoint", "http://localhost:4318/v1/traces", otelEndpointDesc)
+	cmd.PersistentFlags().String("otel-service", "firedoor-operator", otelServiceDesc)
 
 	// Bind flags to viper
 	if err := viper.BindPFlag("metrics.bind_address", cmd.PersistentFlags().Lookup("metrics-bind-address")); err != nil {

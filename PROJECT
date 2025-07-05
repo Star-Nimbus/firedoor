@@ -5,6 +5,80 @@
 domain: cloudnimbus.io
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.sdk.operatorframework.io/v1:
+    chart:
+      description: A Helm chart for Firedoor operator - Emergency access management for Kubernetes
+      keywords:
+      - firedoor
+      - operator
+      - kubernetes
+      - security
+      - emergency-access
+      - breakglass
+      home: https://github.com/cloud-nimbus/firedoor
+      maintainers:
+      - email: support@cloudnimbus.io
+        name: Cloud Nimbus Team
+      sources:
+      - https://github.com/cloud-nimbus/firedoor
+      version: 0.1.0
+    crdOptions:
+      crdVersion: v1
+      generateEmbeddedObjectMeta: true
+    deploymentOptions:
+      containerImage: star-nimbus.io/firedoor:latest
+      containerPort: 8080
+      healthProbePort: 8081
+      metricsPort: 8080
+      prometheusServiceMonitor: true
+      prometheusServiceMonitorOptions:
+        interval: 30s
+    rbacOptions:
+      create: true
+      rules:
+      - apiGroups:
+        - access.cloudnimbus.io
+        resources:
+        - breakglasses
+        verbs:
+        - create
+        - delete
+        - get
+        - list
+        - patch
+        - update
+        - watch
+      - apiGroups:
+        - access.cloudnimbus.io
+        resources:
+        - breakglasses/status
+        verbs:
+        - get
+        - patch
+        - update
+      - apiGroups:
+        - rbac.authorization.k8s.io
+        resources:
+        - clusterroles
+        - clusterrolebindings
+        - roles
+        - rolebindings
+        verbs:
+        - create
+        - delete
+        - get
+        - list
+        - patch
+        - update
+        - watch
+      - apiGroups:
+        - ""
+        resources:
+        - events
+        verbs:
+        - create
+        - patch
 projectName: firedoor
 repo: github.com/cloud-nimbus/firedoor
 resources:
