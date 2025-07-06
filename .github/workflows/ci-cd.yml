@@ -141,7 +141,8 @@ jobs:
       - name: Create Kind cluster
         run: |
           kind create cluster --name e2e-test --image kindest/node:v1.29.2 --wait 5m
-          kind export kubeconfig --name e2e-test
+          kind get kubeconfig --name e2e-test > kubeconfig.yaml
+          echo "KUBECONFIG=$PWD/kubeconfig.yaml" >> $GITHUB_ENV
 
       - name: Run e2e tests
         run: make test-e2e
@@ -233,9 +234,6 @@ jobs:
             git push origin "$TAG"
           fi
 
-# -------------------------------------------------------------------------
-# 5. Semantic‑release (tag + changelog) – main branch only
-# -------------------------------------------------------------------------
   release:
     runs-on: ubuntu-latest
     needs: [test, e2e-test, build]
@@ -257,42 +255,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
-# -------------------------------------------------------------------------
-# 6. Deploy to dev (develop branch pushes)
-# -------------------------------------------------------------------------
-  deploy-dev:
-    runs-on: ubuntu-latest
-    needs: [build, setup-skaffold]
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to dev
-        env:
-          KO_DOCKER_REPO: ${{ needs.build.outputs.image }}
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          skaffold deploy --profile=dev \
-            --images firedoor-operator=${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
-
-# -------------------------------------------------------------------------
-# 7. Deploy to prod after successful release
-# -------------------------------------------------------------------------
-  deploy-prod:
-    runs-on: ubuntu-latest
-    needs: [release, build, setup-skaffold]
-    if: needs.release.result == 'success'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to production
-        env:
-          KO_DOCKER_REPO: ghcr.io/cloud-nimbus/firedoor
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          skaffold deploy --images firedoor-operator=ghcr.io/cloud-nimbus/firedoor:${{ env.VERSION }}
-
-# -------------------------------------------------------------------------
-# 8. Security scan (Trivy) – runs in parallel to release/deploy
-# -------------------------------------------------------------------------
   security:
     runs-on: ubuntu-latest
     needs: build
