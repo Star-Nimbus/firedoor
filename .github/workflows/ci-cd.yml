@@ -59,6 +59,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Cache golangci-lint
+        if: matrix.target == 'go'
+        uses: actions/cache@v4
+        with:
+          path: bin/
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('Makefile') }}
       - name: Install golangci-lint
         if: matrix.target == 'go'
         run: make golangci-lint
