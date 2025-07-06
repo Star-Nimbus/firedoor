@@ -13,7 +13,7 @@ data:
         type: tempo
         uid: tempo             # stable UID; referenced by exemplars
         access: proxy
-        url: http://tempo.observability:3100
+        url: http://tempo-query-frontend.telemetry-system.svc.cluster.local:3200
         basicAuth: false
         isDefault: false       
         jsonData:
