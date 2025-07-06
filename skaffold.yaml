@@ -101,9 +101,9 @@ portForward:
   address: 127.0.0.1
 - resourceName: tempo-query-frontend
   resourceType: service
-  port: 3200
+  port: 9095
   namespace: telemetry-system
-  localPort: 3200
+  localPort: 9095
   address: 127.0.0.1
 
 profiles:

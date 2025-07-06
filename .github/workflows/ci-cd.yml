@@ -108,7 +108,7 @@ jobs:
 
   e2e-test:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, setup-skaffold]
     steps:
       - uses: actions/checkout@v4
 
@@ -137,6 +137,24 @@ jobs:
           curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
+
+      - name: Set up Skaffold
+        id: cache-skaffold
+        uses: actions/cache@v4
+        with:
+          path: ~/.skaffold
+          key: skaffold-${{ runner.os }}-${{ env.SKAFFOLD_VERSION }}
+
+      - name: Install Skaffold
+        if: steps.cache-skaffold.outputs.cache-hit != 'true'
+        run: |
+          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/${{ env.SKAFFOLD_VERSION }}/skaffold-linux-amd64
+          chmod +x skaffold
+          mkdir -p ~/.skaffold
+          mv skaffold ~/.skaffold/
+
+      - name: Add Skaffold to PATH
+        run: echo "$HOME/.skaffold" >> $GITHUB_PATH
 
       - name: Run e2e tests
         run: |

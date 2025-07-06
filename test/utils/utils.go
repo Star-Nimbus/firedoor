@@ -88,6 +88,11 @@ func GetProjectDir() (string, error) {
 
 // SkaffoldRun deploys the application using Skaffold with the specified profile
 func SkaffoldRun(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH. Please install skaffold to run e2e tests")
+	}
+
 	cmd := exec.Command("skaffold", "run", "--profile="+profile, "--tail=false")
 	_, err := Run(cmd)
 	return err
@@ -95,6 +100,11 @@ func SkaffoldRun(profile string) error {
 
 // SkaffoldDelete removes the application deployment using Skaffold
 func SkaffoldDelete(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH")
+	}
+
 	cmd := exec.Command("skaffold", "delete", "--profile="+profile)
 	_, err := Run(cmd)
 	return err
@@ -102,6 +112,11 @@ func SkaffoldDelete(profile string) error {
 
 // SkaffoldBuild builds the application using Skaffold without deploying
 func SkaffoldBuild(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH")
+	}
+
 	cmd := exec.Command("skaffold", "build", "--profile="+profile)
 	_, err := Run(cmd)
 	return err
@@ -109,9 +124,20 @@ func SkaffoldBuild(profile string) error {
 
 // SkaffoldDeploy deploys the application using Skaffold (assumes build is already done)
 func SkaffoldDeploy(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH")
+	}
+
 	cmd := exec.Command("skaffold", "deploy", "--profile="+profile, "--tail=false")
 	_, err := Run(cmd)
 	return err
+}
+
+// isSkaffoldAvailable checks if skaffold is available in the PATH
+func isSkaffoldAvailable() bool {
+	cmd := exec.Command("skaffold", "version")
+	return cmd.Run() == nil
 }
 
 // CleanupSkaffoldDeployment cleans up Skaffold deployment and any test resources
