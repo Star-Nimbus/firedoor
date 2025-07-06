@@ -5,10 +5,8 @@ metadata:
   name: {{ include "firedoor.fullname" . }}-manager-role
   labels:
     {{- include "firedoor.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- include "firedoor.annotations" . | nindent 4 }}
 rules:
 - apiGroups:
   - ""
@@ -74,10 +72,8 @@ metadata:
   name: {{ include "firedoor.fullname" . }}-manager-rolebinding
   labels:
     {{- include "firedoor.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- include "firedoor.annotations" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

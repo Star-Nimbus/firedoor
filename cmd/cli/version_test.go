@@ -19,7 +19,6 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
-	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -27,11 +26,6 @@ import (
 
 	"github.com/cloud-nimbus/firedoor/cmd/cli"
 )
-
-func TestVersion(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Version Suite")
-}
 
 var _ = Describe("Version Command", func() {
 	var (

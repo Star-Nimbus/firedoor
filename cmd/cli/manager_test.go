@@ -18,7 +18,6 @@ package cli_test
 
 import (
 	"bytes"
-	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -26,11 +25,6 @@ import (
 
 	"github.com/cloud-nimbus/firedoor/cmd/cli"
 )
-
-func TestManager(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Manager Suite")
-}
 
 var _ = Describe("Manager Command", func() {
 	var (

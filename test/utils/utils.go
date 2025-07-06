@@ -21,7 +21,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
 )
@@ -111,18 +110,6 @@ func SkaffoldBuild(profile string) error {
 // SkaffoldDeploy deploys the application using Skaffold (assumes build is already done)
 func SkaffoldDeploy(profile string) error {
 	cmd := exec.Command("skaffold", "deploy", "--profile="+profile, "--tail=false")
-	_, err := Run(cmd)
-	return err
-}
-
-// WaitForSkaffoldDeployment waits for Skaffold deployment to be ready
-func WaitForSkaffoldDeployment(profile string, timeout time.Duration) error {
-	// Wait for the controller deployment to be ready
-	cmd := exec.Command("kubectl", "wait", "deployment/firedoor-controller-manager",
-		"--for", "condition=Available",
-		"--namespace", "firedoor-system",
-		"--timeout", timeout.String(),
-	)
 	_, err := Run(cmd)
 	return err
 }

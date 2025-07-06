@@ -39,7 +39,7 @@ helm.sh/chart: {{ include "firedoor.chart" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/managed-by: Helm
 {{- with .Values.commonLabels }}
 {{ toYaml . }}
 {{- end }}
@@ -52,6 +52,17 @@ Selector labels
 app.kubernetes.io/name: {{ include "firedoor.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 control-plane: controller-manager
+{{- end }}
+
+{{/*
+Common annotations for resource ownership
+*/}}
+{{- define "firedoor.annotations" -}}
+meta.helm.sh/release-name: {{ .Release.Name }}
+meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+{{- with .Values.commonAnnotations }}
+{{ toYaml . }}
+{{- end }}
 {{- end }}
 
 {{/*

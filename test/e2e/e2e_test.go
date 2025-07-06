@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"strings"
 	"time"
@@ -42,9 +43,15 @@ var _ = Describe("controller", Ordered, func() {
 	BeforeAll(func() {
 		ctx = context.Background()
 
-		By("creating kubernetes client")
-		config, err := clientcmd.BuildConfigFromFlags("", "")
-		Expect(err).NotTo(HaveOccurred())
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+
+		configOverrides := &clientcmd.ConfigOverrides{}
+
+		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+		config, err := kubeConfig.ClientConfig()
+		if err != nil {
+			log.Fatalf("failed to load kubeconfig: %v", err)
+		}
 
 		clientset, err = kubernetes.NewForConfig(config)
 		Expect(err).NotTo(HaveOccurred())
@@ -64,16 +71,9 @@ var _ = Describe("controller", Ordered, func() {
 
 	Context("Operator", func() {
 		It("should run successfully", func() {
-			By("installing CRDs")
-			cmd := exec.Command("make", "install")
-			_, err := utils.Run(cmd)
-			ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 			By("deploying the controller-manager using Skaffold")
 			Expect(utils.SkaffoldRun("dev")).To(Succeed())
-
-			By("waiting for Skaffold deployment to be ready")
-			Expect(utils.WaitForSkaffoldDeployment("dev", 2*time.Minute)).To(Succeed())
 
 			By("validating that the controller-manager pod is running as expected")
 			verifyControllerUp := func() error {
@@ -115,14 +115,8 @@ var _ = Describe("controller", Ordered, func() {
 		})
 
 		It("should handle breakglass CRD operations", func() {
-			By("installing CRDs")
-			cmd := exec.Command("make", "install")
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
 			By("deploying the controller-manager using Skaffold")
 			Expect(utils.SkaffoldRun("dev")).To(Succeed())
-			Expect(utils.WaitForSkaffoldDeployment("dev", 2*time.Minute)).To(Succeed())
 
 			By("creating a breakglass resource")
 			breakglassYAML := `
@@ -140,9 +134,9 @@ spec:
   approved: true
   reason: "E2E test"
 `
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(breakglassYAML)
-			_, err = utils.Run(cmd)
+			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying breakglass resource is created")

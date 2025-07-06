@@ -141,8 +141,6 @@ jobs:
       - name: Run e2e tests
         run: |
           kind create cluster --name e2e-test --image kindest/node:v1.29.2 --wait 5m
-          kind get kubeconfig --name e2e-test > kubeconfig.yaml
-          export KUBECONFIG=$PWD/kubeconfig.yaml
           kubectl config use-context kind-e2e-test
           make test-e2e
       - name: Cleanup Kind cluster
