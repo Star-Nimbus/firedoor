@@ -42,7 +42,3 @@ spec:
         namespaces: ["default"]
         resourceNames: ["app-config", "debug-config"]
   
-  # Alternative: Use existing ClusterRoles instead of custom AccessPolicy
-  # clusterRoles:
-  #   - "view"
-  #   - "edit" 

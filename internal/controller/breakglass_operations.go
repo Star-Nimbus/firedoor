@@ -106,15 +106,16 @@ func safeName(parts ...string) string {
 }
 
 // patchStatus updates the status with retry logic for conflicts
-func (o *breakglassOperator) patchStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, mutate func()) error {
+func (o *breakglassOperator) patchStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, mutate func(*accessv1alpha1.Breakglass)) error {
 	return retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
 		// Always refetch to avoid stale object conflicts
 		latest := &accessv1alpha1.Breakglass{}
 		if err := o.client.Get(ctx, client.ObjectKeyFromObject(bg), latest); err != nil {
 			return err
 		}
-		mutate()
-		// ensure you're updating the latest object
+		// Apply mutations to the latest object
+		mutate(latest)
+		// Update the latest object
 		return o.client.Status().Update(ctx, latest)
 	})
 }
@@ -494,12 +495,12 @@ func (o *breakglassOperator) convertAccessRuleToPolicyRule(accessRule accessv1al
 // setDeniedStatus sets the denied status and conditions
 func (o *breakglassOperator) setDeniedStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, err error) {
 	// Collapse status updates into one patch
-	if err := o.patchStatus(ctx, bg, func() {
-		bg.Status.Phase = accessv1alpha1.PhaseDenied
-		bg.Status.ApprovedBy = constants.ControllerIdentity
+	if err := o.patchStatus(ctx, bg, func(latest *accessv1alpha1.Breakglass) {
+		latest.Status.Phase = accessv1alpha1.PhaseDenied
+		latest.Status.ApprovedBy = constants.ControllerIdentity
 
-		o.createCondition(bg, conditions.Denied, metav1.ConditionTrue, conditions.InvalidRequest, fmt.Sprintf("Missing subjects: %v", err))
-		o.createCondition(bg, conditions.Approved, metav1.ConditionFalse, conditions.InvalidRequest, "Request denied due to missing user or group")
+		o.createCondition(latest, conditions.Denied, metav1.ConditionTrue, conditions.InvalidRequest, fmt.Sprintf("Missing subjects: %v", err))
+		o.createCondition(latest, conditions.Approved, metav1.ConditionFalse, conditions.InvalidRequest, "Request denied due to missing user or group")
 	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
 	}
@@ -544,9 +545,9 @@ func (o *breakglassOperator) completeGrantAccess(ctx context.Context, bg *access
 	}
 
 	// Collapse status updates into one patch
-	if err := o.patchStatus(ctx, bg, func() {
-		o.updateGrantedStatus(bg, phase, &now, &expiry)
-		o.setGrantedConditions(bg, subjects, expiry)
+	if err := o.patchStatus(ctx, bg, func(latest *accessv1alpha1.Breakglass) {
+		o.updateGrantedStatus(latest, phase, &now, &expiry)
+		o.setGrantedConditions(latest, subjects, expiry)
 	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
 		return ctrl.Result{}, err
@@ -770,9 +771,9 @@ func (o *breakglassOperator) completeRevokeAccess(ctx context.Context, bg *acces
 	telemetry.RecordRevokeAccessSuccess(bg)
 
 	// Collapse status updates into one patch
-	if err := o.patchStatus(ctx, bg, func() {
-		o.updateRevokedStatus(bg)
-		o.setRevokedConditions(bg)
+	if err := o.patchStatus(ctx, bg, func(latest *accessv1alpha1.Breakglass) {
+		o.updateRevokedStatus(latest)
+		o.setRevokedConditions(latest)
 	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
 		return ctrl.Result{}, err

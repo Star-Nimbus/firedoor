@@ -263,8 +263,8 @@ func (r *BreakglassReconciler) handlePendingBreakglass(ctx context.Context, bg *
 	}
 
 	telemetry.RecordReconciliationActive(nsKey, true)
-	// Small requeue so the controller sees the new Phase/ExpiresAt right away
-	return ctrl.Result{RequeueAfter: time.Second}, nil
+	// Use the operator's requeue time to avoid hot loops
+	return result, nil
 }
 
 // handleActiveBreakglass handles a breakglass in Active phase
