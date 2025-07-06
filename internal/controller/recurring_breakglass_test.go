@@ -47,7 +47,7 @@ var _ = Describe("RecurringBreakglassManager", func() {
 		})
 
 		It("skips missed windows and updates NextActivationAt", func() {
-			past := metav1.NewTime(time.Now().Add(-2 * time.Hour))
+			past := metav1.NewTime(time.Now().Add(-2 * time.Minute))
 			bg := &accessv1alpha1.Breakglass{
 				Spec: accessv1alpha1.BreakglassSpec{
 					Recurring:          true,

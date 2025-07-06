@@ -1,16 +1,14 @@
 /*
-   End‑to‑end flow tests for the Firedoor operator.  The suite is **black‑box**: we
-   only interact with the cluster API surface – never internal packages.  We:
-     1. Spin‑up the operator with `skaffold run --profile=dev` **once** per suite.
-     2. Exercise a couple of happy‑path and validation scenarios.
+   End-to-end flow tests for the Firedoor operator.  The suite is **black-box**:
+   we only interact with the cluster API surface – never internal packages.
+
+   Flow:
+     1. Spin-up the operator with `skaffold run --profile=dev` **once** per suite.
+     2. Exercise a couple of happy-path and validation scenarios.
      3. Tear the deployment down with `skaffold delete`.
 
-   Running:
+   Run locally with:
      make test-e2e         # invokes `go test ./test/e2e -v -ginkgo.v`
-
-   NOTE: We intentionally removed the `//go:build e2e` build‑tag because CI
-   invokes the test binary without custom tags – having the tag meant the test
-   was silently excluded (0 specs executed).
 */
 
 package e2e
@@ -46,7 +44,7 @@ const (
 	longTimeout       = 4 * time.Minute  // expiry path
 )
 
-// randomName generates a simple DNS-1123 compliant name
+// randomName generates a simple DNS-1123 compliant name.
 func randomName(prefix string) string {
 	return fmt.Sprintf("%s-%06x", prefix, rand.Int31())
 }
@@ -59,14 +57,11 @@ var _ = Describe("Firedoor operator", Ordered, Serial, func() {
 		discoveryClient discovery.DiscoveryInterface
 	)
 
-	// ------------------------------------------------------------
-	// cluster + client bootstrap (once per suite)
-	// ------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// Cluster + client bootstrap (once per suite)
+	// -------------------------------------------------------------------------
 	BeforeAll(func() {
 		ctx = context.Background()
-
-		// Seed random number generator for consistent test behavior
-		rand.Seed(time.Now().UnixNano())
 
 		restCfg, err := config.GetConfig()
 		Expect(err).NotTo(HaveOccurred())
@@ -87,72 +82,124 @@ var _ = Describe("Firedoor operator", Ordered, Serial, func() {
 		ensureNamespace(ctx, clientset, operatorNamespace)
 	})
 
-	// ------------------------------------------------------------
-	// deploy operator once – all specs run against same instance
-	// ------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// Deploy operator once – all specs run against the same instance
+	// -------------------------------------------------------------------------
 	BeforeAll(func() {
-		By("deploying operator with skaffold …")
-		Expect(utils.SkaffoldRun("dev")).To(Succeed())
-		DeferCleanup(func() { utils.CleanupSkaffoldDeployment("dev") })
+		By("checking if operator is already deployed")
+		pods, err := clientset.CoreV1().Pods(operatorNamespace).List(ctx,
+			metav1.ListOptions{LabelSelector: "control-plane=controller-manager"})
+		if err != nil || len(pods.Items) == 0 {
+			By("deploying operator with skaffold …")
+			Expect(utils.SkaffoldRun("dev")).To(Succeed())
+			DeferCleanup(func() { utils.CleanupSkaffoldDeployment("dev") })
+		} else {
+			By("operator already deployed, skipping deployment")
+		}
 
 		Eventually(controllerPodReady(ctx, clientset), deployTimeout, pollInterval).Should(Succeed())
 
-		// Wait for the breakglass CRD to be available using discovery
-		gvResource := schema.GroupVersionResource{
+		// Wait for the Breakglass CRD to be established.
+		gvr := schema.GroupVersionResource{
 			Group:    "access.cloudnimbus.io",
 			Version:  "v1alpha1",
 			Resource: "breakglasses",
 		}
 		Eventually(func() error {
-			return utils.WaitForCRDWithDiscovery(ctx, discoveryClient, gvResource, 30*time.Second)
+			return utils.WaitForCRDWithDiscovery(ctx, discoveryClient, gvr, 30*time.Second)
 		}, deployTimeout, pollInterval).Should(Succeed())
 	})
 
-	// ------------------------------------------------------------
-	// Scenario: happy‑path activation then automatic expiry
-	// ------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// Scenario: happy-path activation then automatic expiry
+	// -------------------------------------------------------------------------
 	It("grants and then expires a Breakglass session", func() {
 		name := randomName("bg-happy")
-		bg := newBreakglass(name, withUser("e2e-user"), withDuration(25*time.Second))
+		bg := newBreakglass(name, withUser("e2e-user"), withDuration(time.Minute))
 		Expect(k8sClient.Create(ctx, bg)).To(Succeed())
 		DeferCleanup(k8sClient.Delete, ctx, bg)
 
-		Eventually(bgPhase(ctx, k8sClient, name), shortTimeout, pollInterval).Should(Equal(accessv1alpha1.PhaseActive))
-		Eventually(bgPhase(ctx, k8sClient, name), longTimeout, pollInterval).Should(Equal(accessv1alpha1.PhaseExpired))
+		By("waiting for Breakglass to become Active")
+		Eventually(bgPhase(ctx, k8sClient, name), shortTimeout, pollInterval).
+			Should(Equal(accessv1alpha1.PhaseActive))
+
+		By("waiting for Breakglass to expire")
+		Eventually(bgPhase(ctx, k8sClient, name), longTimeout, pollInterval).
+			Should(Equal(accessv1alpha1.PhaseExpired))
 
 		fetched := mustFetch(ctx, k8sClient, name)
 		Expect(hasCondition(fetched, conditions.Expired, metav1.ConditionTrue)).To(BeTrue())
 	})
 
-	// ------------------------------------------------------------
+	// -------------------------------------------------------------------------
 	// Scenario: validation failure – no subjects provided
-	// ------------------------------------------------------------
+	// -------------------------------------------------------------------------
 	It("denies a Breakglass without subjects", func() {
 		name := randomName("bg-invalid")
 		bg := newBreakglass(name) // no user / group
 		Expect(k8sClient.Create(ctx, bg)).To(Succeed())
 		DeferCleanup(k8sClient.Delete, ctx, bg)
 
-		Eventually(bgPhase(ctx, k8sClient, name), shortTimeout, pollInterval).Should(Equal(accessv1alpha1.PhaseDenied))
+		Eventually(bgPhase(ctx, k8sClient, name), shortTimeout, pollInterval).
+			Should(Equal(accessv1alpha1.PhaseDenied))
 		fetched := mustFetch(ctx, k8sClient, name)
 		Expect(hasCondition(fetched, conditions.Denied, metav1.ConditionTrue)).To(BeTrue())
 	})
+
+	// -------------------------------------------------------------------------
+	// Scenario: operator logs are accessible (debug aid)
+	// -------------------------------------------------------------------------
+	It("should have operator logs available", func() {
+		By("fetching operator pod logs (last 20 lines)")
+		pods, err := clientset.CoreV1().Pods(operatorNamespace).
+			List(ctx, metav1.ListOptions{LabelSelector: "control-plane=controller-manager"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(len(pods.Items)).To(BeNumerically(">", 0))
+
+		tail := int64(20)
+		logs, err := clientset.CoreV1().Pods(operatorNamespace).
+			GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{TailLines: &tail}).Do(ctx).Raw()
+		if err == nil {
+			fmt.Fprintf(GinkgoWriter, "Operator logs (last 20 lines):\n%s\n", string(logs))
+		}
+	})
+
+	// -------------------------------------------------------------------------
+	// Scenario: RBAC artefacts wired correctly
+	// -------------------------------------------------------------------------
+	It("should have proper RBAC permissions", func() {
+		By("checking RBAC objects")
+		_, err := clientset.CoreV1().ServiceAccounts(operatorNamespace).
+			Get(ctx, "controller-manager", metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = clientset.RbacV1().ClusterRoleBindings().
+			Get(ctx, "manager-rolebinding", metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = clientset.RbacV1().ClusterRoles().
+			Get(ctx, "manager-role", metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
+	})
 })
 
-// -----------------------------------------------------------------------------
-// cluster helpers
-// -----------------------------------------------------------------------------
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
 func ensureNamespace(ctx context.Context, cs *kubernetes.Clientset, ns string) {
 	if _, err := cs.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); err == nil {
 		return
 	}
-	_, _ = cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}, metav1.CreateOptions{})
+	_, _ = cs.CoreV1().Namespaces().
+		Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}, metav1.CreateOptions{})
 }
 
 func controllerPodReady(ctx context.Context, cs *kubernetes.Clientset) func() error {
 	return func() error {
-		pods, err := cs.CoreV1().Pods(operatorNamespace).List(ctx, metav1.ListOptions{LabelSelector: "control-plane=controller-manager"})
+		pods, err := cs.CoreV1().
+			Pods(operatorNamespace).
+			List(ctx, metav1.ListOptions{LabelSelector: "control-plane=controller-manager"})
 		if err != nil {
 			return err
 		}
@@ -166,9 +213,7 @@ func controllerPodReady(ctx context.Context, cs *kubernetes.Clientset) func() er
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Breakglass helpers
-// -----------------------------------------------------------------------------
+/* ----------------------- Breakglass-specific helpers ---------------------- */
 
 func mustFetch(ctx context.Context, c ctrlclient.Client, name string) *accessv1alpha1.Breakglass {
 	bg, err := fetchBG(ctx, c, name)
@@ -178,7 +223,8 @@ func mustFetch(ctx context.Context, c ctrlclient.Client, name string) *accessv1a
 
 func fetchBG(ctx context.Context, c ctrlclient.Client, name string) (*accessv1alpha1.Breakglass, error) {
 	var bg accessv1alpha1.Breakglass
-	if err := c.Get(ctx, ctrlclient.ObjectKey{Name: name, Namespace: operatorNamespace}, &bg); err != nil {
+	if err := c.Get(ctx,
+		ctrlclient.ObjectKey{Namespace: operatorNamespace, Name: name}, &bg); err != nil {
 		return nil, err
 	}
 	return &bg, nil
@@ -190,32 +236,44 @@ func bgPhase(ctx context.Context, c ctrlclient.Client, name string) func() (acce
 		if err != nil {
 			return "", err
 		}
+		fmt.Fprintf(GinkgoWriter, "Breakglass %s: phase=%s  conditions=%+v\n",
+			name, bg.Status.Phase, bg.Status.Conditions)
 		return bg.Status.Phase, nil
 	}
 }
 
 func hasCondition(bg *accessv1alpha1.Breakglass, t conditions.Condition, status metav1.ConditionStatus) bool {
-	expectedType := t.String()
-	for i := range bg.Status.Conditions {
-		cond := bg.Status.Conditions[i]
-		if cond.Type == expectedType && cond.Status == status {
+	want := t.String()
+	for _, cond := range bg.Status.Conditions {
+		if cond.Type == want && cond.Status == status {
 			return true
 		}
 	}
 	return false
 }
 
+/* ----------------------- Breakglass object builder ----------------------- */
+
 type bgOpt func(*accessv1alpha1.Breakglass)
 
 func newBreakglass(name string, opts ...bgOpt) *accessv1alpha1.Breakglass {
 	bg := &accessv1alpha1.Breakglass{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: operatorNamespace},
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "access.cloudnimbus.io/v1alpha1",
+			Kind:       "Breakglass",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: operatorNamespace,
+		},
 		Spec: accessv1alpha1.BreakglassSpec{
-			AccessPolicy:  &accessv1alpha1.AccessPolicy{Rules: []accessv1alpha1.AccessRule{defaultRule()}},
-			Duration:      &metav1.Duration{Duration: time.Hour},
-			Justification: "e2e test",
+			ApprovalRequired: false,
+			AccessPolicy:     &accessv1alpha1.AccessPolicy{Rules: []accessv1alpha1.AccessRule{defaultRule()}},
+			Duration:         &metav1.Duration{Duration: time.Minute},
+			Justification:    "e2e test",
 		},
 	}
+
 	for _, o := range opts {
 		o(bg)
 	}

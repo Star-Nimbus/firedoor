@@ -181,11 +181,15 @@ func WaitForCRDWithDiscovery(ctx context.Context, dc discovery.DiscoveryInterfac
 		if discovery.IsGroupDiscoveryFailedError(err) || err == nil {
 			// keep going until the specific resource appears
 			resources, _ := dc.ServerResourcesForGroupVersion(gvr.GroupVersion().String())
-			for _, r := range resources.APIResources {
-				if r.Name == gvr.Resource {
-					return true, nil
+			if resources != nil {
+				for _, r := range resources.APIResources {
+					if r.Name == gvr.Resource {
+						fmt.Fprintf(GinkgoWriter, "Found CRD resource: %s\n", r.Name)
+						return true, nil
+					}
 				}
 			}
+			fmt.Fprintf(GinkgoWriter, "Waiting for CRD resource: %s\n", gvr.Resource)
 			return false, nil
 		}
 		return false, err // real error

@@ -43,6 +43,9 @@ spec:
         - /ko-app/cmd
         args:
         {{- include "firedoor.managerArgs" . | nindent 8 }}
+        env:
+        - name: FD_CONTROLLER_PRIVILEGE_ESCALATION
+          value: {{ .Values.rbac.privilegeEscalation | quote }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         {{- if .Values.healthProbe.port }}

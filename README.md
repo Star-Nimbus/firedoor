@@ -9,6 +9,7 @@ Firedoor is a Kubernetes operator for managing breakglass access to the cluster.
 - **Audit Trails**: Complete logging and tracking of access requests
 - **Compliance**: Built-in compliance frameworks and reporting
 - **Secure**: Zero-trust principles with time-limited access
+- **Privilege Escalation**: Optional mode allowing operators to grant permissions they don't hold themselves
 
 ## Quick Start
 
@@ -120,6 +121,83 @@ The controller automatically manages the lifecycle of recurring access, includin
 - Tracking activation counts
 - Managing transitions between states
 - Providing metrics for monitoring
+
+## Privilege Escalation Mode
+
+By default, the Firedoor operator can only grant permissions that it holds itself. This follows the principle of least privilege and ensures security. However, in some scenarios, you may need the operator to grant elevated permissions that it doesn't currently hold.
+
+### Enabling Privilege Escalation
+
+To enable privilege escalation mode, set the `rbac.privilegeEscalation` flag to `true` in your Helm values:
+
+```yaml
+rbac:
+  create: true
+  privilegeEscalation: true  # Enable privilege escalation mode
+  extraRules:
+    # Your existing extra rules...
+```
+
+Or via environment variable:
+
+```bash
+export FD_CONTROLLER_PRIVILEGE_ESCALATION=true
+```
+
+### How It Works
+
+When privilege escalation is enabled:
+
+1. **RBAC Permissions**: The operator receives the `escalate` verb on RBAC resources, allowing it to grant permissions it doesn't hold
+2. **Security Model**: The operator can create Roles/ClusterRoles with any permissions, bypassing the default Kubernetes RBAC restrictions
+3. **Audit Trail**: All privilege escalation actions are logged for security monitoring
+
+### Security Considerations
+
+⚠️ **Warning**: Privilege escalation mode bypasses Kubernetes RBAC restrictions and should be used carefully:
+
+- **Limited Scope**: Only enable for specific use cases where elevated permissions are necessary
+- **Monitoring**: Ensure comprehensive logging and monitoring of all breakglass access
+- **Approval Workflow**: Always require manual approval for breakglass requests when privilege escalation is enabled
+- **Time Limits**: Use short durations for elevated access
+- **Regular Review**: Periodically review and audit all breakglass access
+
+### Example Usage
+
+```yaml
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: elevated-access-example
+spec:
+  subjects:
+    - kind: User
+      name: "admin@example.com"
+  
+  # These permissions require privilege escalation mode
+  accessPolicy:
+    rules:
+      - actions: ["get", "list", "watch"]
+        resources: ["nodes"]  # Cluster-scoped resource
+        apiGroups: [""]
+      
+      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        resources: ["persistentvolumes"]  # Storage resources
+        apiGroups: [""]
+  
+  approvalRequired: true  # Always require approval for elevated access
+  duration: "30m"         # Short duration for elevated permissions
+  justification: "Emergency cluster maintenance requiring node access"
+```
+
+### Best Practices
+
+1. **Default to Disabled**: Keep privilege escalation disabled by default
+2. **Enable Per Environment**: Only enable in environments where elevated access is necessary
+3. **Use with Approval**: Always require manual approval when privilege escalation is enabled
+4. **Monitor Usage**: Set up alerts for privilege escalation usage
+5. **Regular Audits**: Review privilege escalation usage regularly
+6. **Documentation**: Document why privilege escalation is needed in your environment
 
 ```
 

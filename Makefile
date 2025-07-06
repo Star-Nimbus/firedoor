@@ -106,6 +106,10 @@ test-parallel: manifests generate fmt vet envtest vendor ## Run tests in paralle
 test-e2e:
 	go test ./test/e2e/ -v -ginkgo.v
 
+.PHONY: test-e2e-debug  # Run the e2e tests with enhanced debugging and setup.
+test-e2e-debug:
+	./scripts/run-e2e.sh
+
 .PHONY: test-e2e-skaffold  # Run the Skaffold e2e tests against a Kind k8s instance that is spun up.
 test-e2e-skaffold:
 	go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="Skaffold Integration"

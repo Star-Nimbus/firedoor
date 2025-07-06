@@ -64,8 +64,9 @@ type HTTPDefaults struct {
 
 // ControllerDefaults holds controller default values
 type ControllerDefaults struct {
-	ReconcileTimeout time.Duration
-	RetryDelay       time.Duration
+	ReconcileTimeout    time.Duration
+	RetryDelay          time.Duration
+	PrivilegeEscalation bool
 }
 
 // ServerDefaults holds server default values
@@ -107,8 +108,9 @@ func NewDefaults() *Defaults {
 			EnableHTTP2: false,
 		},
 		Controller: ControllerDefaults{
-			ReconcileTimeout: 30 * time.Second,
-			RetryDelay:       1 * time.Second,
+			ReconcileTimeout:    30 * time.Second,
+			RetryDelay:          1 * time.Second,
+			PrivilegeEscalation: false,
 		},
 		Server: ServerDefaults{
 			MetricsBindAddress:     ":8080",

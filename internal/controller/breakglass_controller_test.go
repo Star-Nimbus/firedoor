@@ -63,7 +63,7 @@ var _ = Describe("Breakglass Controller", func() {
 						}},
 						ClusterRoles:     []string{"admin"},
 						ApprovalRequired: false,
-						Duration:         &metav1.Duration{Duration: time.Hour},
+						Duration:         &metav1.Duration{Duration: time.Minute},
 						Justification:    "Test breakglass",
 					},
 				}
@@ -119,7 +119,7 @@ var _ = Describe("Breakglass Controller", func() {
 				}},
 				ClusterRoles:     []string{"admin", "viewer"},
 				ApprovalRequired: true,
-				Duration:         &metav1.Duration{Duration: time.Hour},
+				Duration:         &metav1.Duration{Duration: time.Minute},
 				Justification:    "Test multiple subjects and cluster roles",
 			},
 		}
@@ -201,7 +201,7 @@ var _ = Describe("Breakglass Controller", func() {
 				}},
 				ClusterRoles:       []string{"viewer"},
 				ApprovalRequired:   false,
-				Duration:           &metav1.Duration{Duration: time.Hour},
+				Duration:           &metav1.Duration{Duration: time.Minute},
 				Justification:      "Test invalid recurring breakglass",
 				Recurring:          true,
 				RecurrenceSchedule: "invalid cron schedule",

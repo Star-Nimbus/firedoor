@@ -72,8 +72,9 @@ type HTTPConfig struct {
 
 // ControllerConfig holds controller-specific configuration
 type ControllerConfig struct {
-	ReconcileTimeout time.Duration `mapstructure:"reconcile_timeout"`
-	RetryDelay       time.Duration `mapstructure:"retry_delay"`
+	ReconcileTimeout    time.Duration `mapstructure:"reconcile_timeout"`
+	RetryDelay          time.Duration `mapstructure:"retry_delay"`
+	PrivilegeEscalation bool          `mapstructure:"privilege_escalation"`
 }
 
 // ServerConfig holds server-specific configuration
@@ -210,6 +211,7 @@ func setDefaults(v *viper.Viper) {
 	// Controller defaults
 	v.SetDefault("controller.reconcile_timeout", defaults.Controller.ReconcileTimeout)
 	v.SetDefault("controller.retry_delay", defaults.Controller.RetryDelay)
+	v.SetDefault("controller.privilege_escalation", defaults.Controller.PrivilegeEscalation)
 
 	// Server defaults
 	v.SetDefault("server.metrics_bind_address", defaults.Server.MetricsBindAddress)
@@ -279,8 +281,9 @@ func NewDefaultConfig() *Config {
 			EnableHTTP2: defaults.HTTP.EnableHTTP2,
 		},
 		Controller: ControllerConfig{
-			ReconcileTimeout: defaults.Controller.ReconcileTimeout,
-			RetryDelay:       defaults.Controller.RetryDelay,
+			ReconcileTimeout:    defaults.Controller.ReconcileTimeout,
+			RetryDelay:          defaults.Controller.RetryDelay,
+			PrivilegeEscalation: defaults.Controller.PrivilegeEscalation,
 		},
 		Server: ServerConfig{
 			MetricsBindAddress:     defaults.Server.MetricsBindAddress,

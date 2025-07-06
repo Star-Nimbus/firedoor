@@ -75,12 +75,15 @@ const (
 	OperationNameRecurringBreakglassExpiration = "recurringBreakglassExpiration"
 )
 
+// AutoApprover is the constant for system auto-approval
+const AutoApprover = "system-auto-approve"
+
 // Helper functions for bounded metrics - NO HIGH CARDINALITY
 func getApprovalSource(approvedBy string) string {
 	if approvedBy == "" {
 		return "auto"
 	}
-	if approvedBy == "system-auto-approve" {
+	if approvedBy == AutoApprover {
 		return "auto"
 	}
 	return "human"

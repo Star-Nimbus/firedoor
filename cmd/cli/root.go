@@ -135,6 +135,7 @@ func addPersistentFlags(cmd *cobra.Command) {
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
+// This is the main entry point for the CLI application.
 func Execute() {
 	rootCmd := NewRootCmd()
 	if err := rootCmd.Execute(); err != nil {
@@ -143,7 +144,9 @@ func Execute() {
 	}
 }
 
-// GetConfig returns the loaded configuration
+// GetConfig returns the loaded configuration.
+// This function provides access to the global configuration that was loaded
+// during CLI initialization.
 func GetConfig() *config.Config {
 	return cfg
 }

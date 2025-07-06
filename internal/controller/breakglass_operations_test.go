@@ -45,7 +45,7 @@ var _ = Describe("BreakglassOperator", func() {
 		recorder = &record.FakeRecorder{}
 		// Create a disabled Alertmanager service for testing
 		alertService := alerting.NewAlertmanagerService(&config.AlertmanagerConfig{Enabled: false}, recorder)
-		operator = NewBreakglassOperator(mockClient, recorder, alertService)
+		operator = NewBreakglassOperator(mockClient, recorder, alertService, false)
 	})
 
 	Describe("GrantAccess", func() {
@@ -63,7 +63,7 @@ var _ = Describe("BreakglassOperator", func() {
 						}},
 					},
 					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test breakglass",
 					Subjects:         []accessv1alpha1.SubjectRef{{Kind: rbacv1.UserKind, Name: "test-user"}},
 				}
@@ -107,7 +107,7 @@ var _ = Describe("BreakglassOperator", func() {
 						}},
 					},
 					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test breakglass invalid",
 					// No subjects - this should cause validation to fail
 					Subjects: []accessv1alpha1.SubjectRef{},
@@ -154,7 +154,7 @@ var _ = Describe("BreakglassOperator", func() {
 						}},
 					},
 					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test breakglass",
 					Subjects:         []accessv1alpha1.SubjectRef{{Kind: rbacv1.UserKind, Name: "test-user"}},
 				}
@@ -198,7 +198,7 @@ var _ = Describe("BreakglassOperator", func() {
 					}},
 				},
 				ApprovalRequired: false,
-				Duration:         &metav1.Duration{Duration: time.Hour},
+				Duration:         &metav1.Duration{Duration: time.Minute},
 				Justification:    "Test custom clusterrole",
 			}
 
@@ -206,7 +206,7 @@ var _ = Describe("BreakglassOperator", func() {
 			recorder := &record.FakeRecorder{}
 			// Create a disabled Alertmanager service for testing
 			alertService := alerting.NewAlertmanagerService(&config.AlertmanagerConfig{Enabled: false}, recorder)
-			operator := NewBreakglassOperator(testMockClient, recorder, alertService)
+			operator := NewBreakglassOperator(testMockClient, recorder, alertService, false)
 
 			_, err := operator.GrantAccess(context.Background(), bg)
 			Expect(err).NotTo(HaveOccurred())
@@ -243,7 +243,7 @@ var _ = Describe("resolveSubjects", func() {
 					}},
 				},
 				ApprovalRequired: false,
-				Duration:         &metav1.Duration{Duration: time.Hour},
+				Duration:         &metav1.Duration{Duration: time.Minute},
 				Justification:    "Test breakglass",
 				Subjects:         []accessv1alpha1.SubjectRef{{Kind: rbacv1.UserKind, Name: "test-user"}},
 			}
@@ -270,7 +270,7 @@ var _ = Describe("resolveSubjects", func() {
 					}},
 				},
 				ApprovalRequired: false,
-				Duration:         &metav1.Duration{Duration: time.Hour},
+				Duration:         &metav1.Duration{Duration: time.Minute},
 				Justification:    "Test breakglass",
 				Subjects:         []accessv1alpha1.SubjectRef{{Kind: rbacv1.GroupKind, Name: "test-group"}},
 			}
@@ -297,7 +297,7 @@ var _ = Describe("resolveSubjects", func() {
 					}},
 				},
 				ApprovalRequired: false,
-				Duration:         &metav1.Duration{Duration: time.Hour},
+				Duration:         &metav1.Duration{Duration: time.Minute},
 				Justification:    "Test breakglass",
 			}
 

@@ -125,6 +125,34 @@ rbac:
   # Whether to create RBAC resources
   create: true
 
+  # Enable privilege escalation mode. When enabled, the operator can grant permissions
+  # that it doesn't currently hold itself. This allows the operator to grant elevated
+  # access without having those permissions itself.
+  # WARNING: This bypasses Kubernetes RBAC restrictions and should be used carefully.
+  # Only enable if you understand the security implications.
+  privilegeEscalation: false
+
+  # Extra rules granted to the operator. 
+  extraRules:
+    # read ConfigMaps cluster-wide
+    - apiGroups: [ "" ]
+      resources: [ "configmaps" ]
+      verbs:     [ "get", "list", "watch", "create", "update", "patch", "delete" ]
+
+    # read Pods
+    - apiGroups: [ "" ]
+      resources: [ "pods" ]
+      verbs:     [ "get", "list", "watch" ]
+
+    # read Services
+    - apiGroups: [ "" ]
+      resources: [ "services" ]
+      verbs:     [ "get", "list", "watch" ]
+
+    - apiGroups: [ "apps" ]
+      resources: [ "deployments" ]
+      verbs: [ "get", "list", "watch" ]
+
 # CRD configuration
 crds:
   # Whether to install CRDs

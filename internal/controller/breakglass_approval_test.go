@@ -49,7 +49,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		}
 		// Create a disabled Alertmanager service for testing
 		alertService := alerting.NewAlertmanagerService(&config.AlertmanagerConfig{Enabled: false}, recorder)
-		reconciler.operator = NewBreakglassOperator(mockClient, recorder, alertService)
+		reconciler.operator = NewBreakglassOperator(mockClient, recorder, alertService, false)
 	})
 
 	Describe("Approval Required Logic", func() {
@@ -66,7 +66,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test approval required",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -96,7 +96,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test auto approve",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -123,7 +123,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test already approved",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -154,7 +154,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test manual approval",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -193,7 +193,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test already approved error",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -221,7 +221,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test wrong phase error",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -249,7 +249,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test manual denial",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -288,7 +288,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test deny approved error",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -318,7 +318,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test manual revocation",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -357,7 +357,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test revoke pending error",
 				},
 				Status: accessv1alpha1.BreakglassStatus{
@@ -385,7 +385,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test new pending",
 				},
 			}
@@ -409,7 +409,7 @@ var _ = Describe("Breakglass Approval Logic", func() {
 					}},
 					ClusterRoles:     []string{"admin"},
 					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
+					Duration:         &metav1.Duration{Duration: time.Minute},
 					Justification:    "Test new auto approve",
 				},
 			}

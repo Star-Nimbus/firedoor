@@ -139,10 +139,6 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 		TLSOpts: tlsOpts,
 	})
 
-	// Metrics endpoint is enabled in 'kustomize/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,

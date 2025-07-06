@@ -1,0 +1,43 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: privilege-escalation-example
+  namespace: firedoor-system
+spec:
+  # Auto-approve for testing
+  approvalRequired: false
+  
+  # Short duration for testing
+  duration: 1m
+  
+  # Justification for the breakglass access
+  justification: "Example using privilege escalation mode - operator can grant permissions it doesn't hold"
+  
+  # Subjects who will receive the access
+  subjects:
+    - kind: User
+      name: "admin@example.com"
+  
+  # Access policy with permissions the operator might not have itself
+  # This will work when privilege escalation is enabled in the operator
+  accessPolicy:
+    rules:
+      # Example: Grant access to nodes (cluster-scoped resource)
+      - actions: ["get", "list", "watch"]
+        resources: ["nodes"]
+        apiGroups: [""]
+      
+      # Example: Grant access to persistent volumes
+      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        resources: ["persistentvolumes"]
+        apiGroups: [""]
+      
+      # Example: Grant access to storage classes
+      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        resources: ["storageclasses"]
+        apiGroups: ["storage.k8s.io"]
+      
+      # Example: Grant access to custom resources
+      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        resources: ["customresources"]
+        apiGroups: ["custom.example.com"] 

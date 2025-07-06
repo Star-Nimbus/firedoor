@@ -1,9 +1,45 @@
 ---
+# ClusterRole for cluster-wide resources (only what's absolutely necessary)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: manager-role
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - access.cloudnimbus.io
   resources:
@@ -31,12 +67,17 @@ rules:
   - patch
   - update
 - apiGroups:
-  - ""
+  - coordination.k8s.io
   resources:
-  - events
+  - leases
   verbs:
   - create
+  - delete
+  - get
+  - list
   - patch
+  - update
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -45,6 +86,8 @@ rules:
   - create
   - delete
   - get
+  - list
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -53,6 +96,8 @@ rules:
   - create
   - delete
   - get
+  - list
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -61,6 +106,8 @@ rules:
   - create
   - delete
   - get
+  - list
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -69,3 +116,19 @@ rules:
   - create
   - delete
   - get
+  - list
+  - watch
+---
+# ClusterRoleBinding for cluster-wide permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: manager-role
+subjects:
+- kind: ServiceAccount
+  name: controller-manager
+  namespace: firedoor-system

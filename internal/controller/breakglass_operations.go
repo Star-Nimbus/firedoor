@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
@@ -32,27 +33,45 @@ type BreakglassOperator interface {
 
 // breakglassOperator implements BreakglassOperator.
 type breakglassOperator struct {
-	client       client.Client
-	recorder     record.EventRecorder
-	alertService *alerting.AlertmanagerService
+	client              client.Client
+	recorder            record.EventRecorder
+	alertService        *alerting.AlertmanagerService
+	privilegeEscalation bool
 }
 
 // NewBreakglassOperator creates a new breakglass operator.
-func NewBreakglassOperator(client client.Client, recorder record.EventRecorder, alertService *alerting.AlertmanagerService) BreakglassOperator {
+func NewBreakglassOperator(client client.Client, recorder record.EventRecorder, alertService *alerting.AlertmanagerService, privilegeEscalation bool) BreakglassOperator {
 	return &breakglassOperator{
-		client:       client,
-		recorder:     recorder,
-		alertService: alertService,
+		client:              client,
+		recorder:            recorder,
+		alertService:        alertService,
+		privilegeEscalation: privilegeEscalation,
 	}
 }
 
 // errNoRequeue is a sentinel error type for permanent failures that should not be requeued
 var errNoRequeue = fmt.Errorf("permanent failure - do not requeue")
 
+// newCondition creates a new condition with consistent formatting
+func newCondition(typ, reason, msg string, status metav1.ConditionStatus) metav1.Condition {
+	return metav1.Condition{
+		Type:               typ,
+		Status:             status,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            msg,
+	}
+}
+
 // upsert creates or updates an object using controllerutil.CreateOrUpdate
 func (o *breakglassOperator) upsert(ctx context.Context, obj client.Object, mutate func() error) error {
 	_, err := controllerutil.CreateOrUpdate(ctx, o.client, obj, mutate)
 	return err
+}
+
+// isPrivilegeEscalationEnabled returns true if privilege escalation mode is enabled
+func (o *breakglassOperator) isPrivilegeEscalationEnabled() bool {
+	return o.privilegeEscalation
 }
 
 // deduplicateSubjects removes duplicate subjects from the list
@@ -89,8 +108,14 @@ func safeName(parts ...string) string {
 // patchStatus updates the status with retry logic for conflicts
 func (o *breakglassOperator) patchStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, mutate func()) error {
 	return retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		// Always refetch to avoid stale object conflicts
+		latest := &accessv1alpha1.Breakglass{}
+		if err := o.client.Get(ctx, client.ObjectKeyFromObject(bg), latest); err != nil {
+			return err
+		}
 		mutate()
-		return o.client.Status().Update(ctx, bg)
+		// ensure you're updating the latest object
+		return o.client.Status().Update(ctx, latest)
 	})
 }
 
@@ -162,6 +187,21 @@ func (o *breakglassOperator) createRBACResources(ctx context.Context, bg *access
 	return fmt.Errorf("neither clusterRoles nor accessPolicy specified")
 }
 
+// checkAndHandlePrivilegeEscalation checks if privilege escalation is needed and handles it appropriately
+func (o *breakglassOperator) checkAndHandlePrivilegeEscalation(ctx context.Context, bg *accessv1alpha1.Breakglass, rules []rbacv1.PolicyRule) error {
+	if !o.isPrivilegeEscalationEnabled() {
+		// If privilege escalation is not enabled, we can't grant permissions we don't have
+		// This is the default secure behavior
+		return nil
+	}
+
+	// When privilege escalation is enabled, we can grant permissions we don't hold ourselves
+	// This is handled by the RBAC escalate verb that should be granted to the operator
+	log.FromContext(ctx).Info("privilege escalation enabled - operator can grant elevated permissions",
+		"breakglass", bg.Name, "rules", len(rules))
+	return nil
+}
+
 // ownerReferenceForBreakglass returns an OwnerReference for the given Breakglass resource.
 func ownerReferenceForBreakglass(bg *accessv1alpha1.Breakglass, blockOwnerDeletion bool) metav1.OwnerReference {
 	controller := true
@@ -192,7 +232,14 @@ func (o *breakglassOperator) createClusterRoleBindings(ctx context.Context, bg *
 			}
 
 			if err := o.upsert(ctx, clusterRole, func() error {
-				clusterRole.Rules = o.convertAccessRulesToPolicyRules(bg.Spec.AccessPolicy.Rules)
+				rules := o.convertAccessRulesToPolicyRules(bg.Spec.AccessPolicy.Rules)
+
+				// Check privilege escalation before setting rules
+				if err := o.checkAndHandlePrivilegeEscalation(ctx, bg, rules); err != nil {
+					return fmt.Errorf("privilege escalation check failed: %w", err)
+				}
+
+				clusterRole.Rules = rules
 				return nil
 			}); err != nil {
 				telemetry.RecordGrantAccessFailure(bg, "cluster_role_upsert_failed")
@@ -270,7 +317,14 @@ func (o *breakglassOperator) createClusterWideRBAC(ctx context.Context, bg *acce
 	}
 
 	if err := o.upsert(ctx, clusterRole, func() error {
-		clusterRole.Rules = o.convertAccessRulesToPolicyRules(bg.Spec.AccessPolicy.Rules)
+		rules := o.convertAccessRulesToPolicyRules(bg.Spec.AccessPolicy.Rules)
+
+		// Check privilege escalation before setting rules
+		if err := o.checkAndHandlePrivilegeEscalation(ctx, bg, rules); err != nil {
+			return fmt.Errorf("privilege escalation check failed: %w", err)
+		}
+
+		clusterRole.Rules = rules
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to upsert ClusterRole: %w", err)
@@ -334,17 +388,27 @@ func (o *breakglassOperator) createNamespaceSpecificRBAC(ctx context.Context, bg
 					Name:      safeName(bg.Name),
 					Namespace: namespace,
 					Labels: map[string]string{
-						"breakglass": bg.Name,
-						"managed-by": "firedoor",
+						"breakglass":           bg.Name,
+						"managed-by":           "firedoor",
+						"breakglass-namespace": bg.Namespace, // Track source namespace for cleanup
 					},
 				},
 			}
 
 			if err := o.upsert(ctx, role, func() error {
+				// Check privilege escalation before setting rules
+				if err := o.checkAndHandlePrivilegeEscalation(ctx, bg, rules); err != nil {
+					return fmt.Errorf("privilege escalation check failed: %w", err)
+				}
+
 				role.Rules = rules
-				// Set controller reference for proper finalizer handling
-				if err := controllerutil.SetControllerReference(bg, role, o.client.Scheme()); err != nil {
-					return fmt.Errorf("failed to set controller reference for Role: %w", err)
+				// Set controller reference only for same-namespace resources
+				if bg.Namespace == role.Namespace {
+					if err := controllerutil.SetControllerReference(bg, role, o.client.Scheme()); err != nil {
+						return fmt.Errorf("failed to set controller reference for Role: %w", err)
+					}
+				} else {
+					log.FromContext(ctx).Info("skip ownerRef – cross-namespace", "bgNs", bg.Namespace, "roleNs", role.Namespace)
 				}
 				return nil
 			}); err != nil {
@@ -357,8 +421,9 @@ func (o *breakglassOperator) createNamespaceSpecificRBAC(ctx context.Context, bg
 					Name:      safeName(bg.Name),
 					Namespace: namespace,
 					Labels: map[string]string{
-						"breakglass": bg.Name,
-						"managed-by": "firedoor",
+						"breakglass":           bg.Name,
+						"managed-by":           "firedoor",
+						"breakglass-namespace": bg.Namespace, // Track source namespace for cleanup
 					},
 				},
 				Subjects: subjects,
@@ -371,9 +436,13 @@ func (o *breakglassOperator) createNamespaceSpecificRBAC(ctx context.Context, bg
 
 			if err := o.upsert(ctx, roleBinding, func() error {
 				roleBinding.Subjects = subjects
-				// Set controller reference for proper finalizer handling
-				if err := controllerutil.SetControllerReference(bg, roleBinding, o.client.Scheme()); err != nil {
-					return fmt.Errorf("failed to set controller reference for RoleBinding: %w", err)
+				// Set controller reference only for same-namespace resources
+				if bg.Namespace == roleBinding.Namespace {
+					if err := controllerutil.SetControllerReference(bg, roleBinding, o.client.Scheme()); err != nil {
+						return fmt.Errorf("failed to set controller reference for RoleBinding: %w", err)
+					}
+				} else {
+					log.FromContext(ctx).Info("skip ownerRef – cross-namespace", "bgNs", bg.Namespace, "roleBindingNs", roleBinding.Namespace)
 				}
 				return nil
 			}); err != nil {
@@ -429,20 +498,8 @@ func (o *breakglassOperator) setDeniedStatus(ctx context.Context, bg *accessv1al
 		bg.Status.Phase = accessv1alpha1.PhaseDenied
 		bg.Status.ApprovedBy = constants.ControllerIdentity
 
-		bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-			Type:               conditions.Denied.String(),
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             conditions.InvalidRequest.String(),
-			Message:            fmt.Sprintf("Missing subjects: %v", err),
-		})
-		bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-			Type:               conditions.Approved.String(),
-			Status:             metav1.ConditionFalse,
-			LastTransitionTime: metav1.Now(),
-			Reason:             conditions.InvalidRequest.String(),
-			Message:            conditions.RequestDeniedDueToMissingUserOrGroup.String(),
-		})
+		o.createCondition(bg, conditions.Denied, metav1.ConditionTrue, conditions.InvalidRequest, fmt.Sprintf("Missing subjects: %v", err))
+		o.createCondition(bg, conditions.Approved, metav1.ConditionFalse, conditions.InvalidRequest, "Request denied due to missing user or group")
 	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
 	}
@@ -469,9 +526,26 @@ func (o *breakglassOperator) completeGrantAccess(ctx context.Context, bg *access
 
 	telemetry.RecordGrantAccessSuccess(bg, subjects[0].Name)
 
+	// Determine the correct phase based on whether this is a recurring breakglass
+	phase := accessv1alpha1.PhaseActive
+	if bg.Spec.Recurring {
+		phase = accessv1alpha1.PhaseRecurringActive
+	}
+
+	// For recurring breakglasses, preserve any existing NextActivationAt that might have been set
+	// by ShouldActivateRecurring, but ensure we set the proper phase and timing
+	if bg.Spec.Recurring {
+		// Ensure we have the proper recurring status fields
+		if bg.Status.NextActivationAt == nil {
+			// This shouldn't happen if ShouldActivateRecurring was called, but handle it gracefully
+			lg := log.FromContext(ctx)
+			lg.Info("NextActivationAt was nil for recurring breakglass, setting default")
+		}
+	}
+
 	// Collapse status updates into one patch
 	if err := o.patchStatus(ctx, bg, func() {
-		o.updateGrantedStatus(bg, accessv1alpha1.PhaseActive, &now, &expiry)
+		o.updateGrantedStatus(bg, phase, &now, &expiry)
 		o.setGrantedConditions(bg, subjects, expiry)
 	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
@@ -512,27 +586,16 @@ func (o *breakglassOperator) updateGrantedStatus(bg *accessv1alpha1.Breakglass, 
 
 // setGrantedConditions sets the conditions for granted access
 func (o *breakglassOperator) setGrantedConditions(bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject, expiry metav1.Time) {
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Approved.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.AccessGranted.String(),
-		Message:            fmt.Sprintf("Breakglass access granted to %d subjects until %s", len(subjects), expiry.Format(time.RFC3339)),
-	})
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Active.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.AccessActive.String(),
-		Message:            fmt.Sprintf("Breakglass access is active until %s", expiry.Format(time.RFC3339)),
-	})
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Denied.String(),
-		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.AccessGranted.String(),
-		Message:            "Access has been granted",
-	})
+	o.createCondition(bg, conditions.Approved, metav1.ConditionTrue, conditions.AccessGranted, fmt.Sprintf("Breakglass access granted to %d subjects until %s", len(subjects), expiry.Format(time.RFC3339)))
+
+	// Set appropriate active condition based on whether this is recurring
+	if bg.Spec.Recurring {
+		o.createCondition(bg, conditions.RecurringActive, metav1.ConditionTrue, conditions.RecurringAccessActive, "Recurring access is currently active")
+	} else {
+		o.createCondition(bg, conditions.Active, metav1.ConditionTrue, conditions.AccessActive, fmt.Sprintf("Breakglass access is active until %s", expiry.Format(time.RFC3339)))
+	}
+
+	o.createCondition(bg, conditions.Denied, metav1.ConditionFalse, conditions.AccessGranted, "Access has been granted")
 }
 
 // RevokeAccess revokes access from a breakglass resource.
@@ -544,6 +607,12 @@ func (o *breakglassOperator) RevokeAccess(ctx context.Context, bg *accessv1alpha
 	lg := log.FromContext(ctx).WithValues("breakglass", bg.Name)
 	ctx = log.IntoContext(ctx, lg)
 
+	// Prevent finalization race: if object is being deleted and already expired, skip
+	if bg.DeletionTimestamp != nil && bg.Status.Phase == accessv1alpha1.PhaseExpired {
+		lg.Info("Skipping revoke; already expired and being finalized")
+		return ctrl.Result{}, nil
+	}
+
 	if err := o.deleteRBACResources(ctx, bg); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -553,6 +622,8 @@ func (o *breakglassOperator) RevokeAccess(ctx context.Context, bg *accessv1alpha
 
 // deleteRBACResources deletes all RBAC resources created for this breakglass
 func (o *breakglassOperator) deleteRBACResources(ctx context.Context, bg *accessv1alpha1.Breakglass) error {
+	lg := log.FromContext(ctx).V(1)
+
 	// Delete ClusterRoleBindings for ClusterRoles
 	if len(bg.Spec.ClusterRoles) > 0 {
 		for _, clusterRoleName := range bg.Spec.ClusterRoles {
@@ -560,7 +631,13 @@ func (o *breakglassOperator) deleteRBACResources(ctx context.Context, bg *access
 			clusterRoleBindingName := safeName(bg.Name, clusterRoleName)
 
 			if err := o.client.Get(ctx, client.ObjectKey{Name: clusterRoleBindingName}, clusterRoleBinding); err == nil {
-				if err := o.client.Delete(ctx, clusterRoleBinding); err != nil {
+				lg.Info("Deleting ClusterRoleBinding", "name", clusterRoleBindingName)
+				// Retry on conflict or server timeout
+				if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+					return apierrors.IsConflict(err) || apierrors.IsServerTimeout(err)
+				}, func() error {
+					return o.client.Delete(ctx, clusterRoleBinding)
+				}); err != nil && !apierrors.IsNotFound(err) {
 					return fmt.Errorf("failed to delete ClusterRoleBinding %s: %w", clusterRoleBindingName, err)
 				}
 			}
@@ -584,22 +661,34 @@ func (o *breakglassOperator) deleteRBACResources(ctx context.Context, bg *access
 
 // deleteClusterWideRBAC deletes ClusterRole and ClusterRoleBinding
 func (o *breakglassOperator) deleteClusterWideRBAC(ctx context.Context, bg *accessv1alpha1.Breakglass) error {
+	lg := log.FromContext(ctx).V(1)
+
 	// Delete ClusterRoleBinding
 	clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
 	clusterRoleBindingName := safeName(bg.Name)
 
 	if err := o.client.Get(ctx, client.ObjectKey{Name: clusterRoleBindingName}, clusterRoleBinding); err == nil {
-		if err := o.client.Delete(ctx, clusterRoleBinding); err != nil {
+		lg.Info("Deleting ClusterRoleBinding", "name", clusterRoleBindingName)
+		// Retry on conflict or server timeout
+		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+			return apierrors.IsConflict(err) || apierrors.IsServerTimeout(err)
+		}, func() error {
+			return o.client.Delete(ctx, clusterRoleBinding)
+		}); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to delete ClusterRoleBinding: %w", err)
 		}
 	}
 
 	// Delete ClusterRole
 	clusterRole := &rbacv1.ClusterRole{}
-	clusterRoleName := safeName(bg.Name)
-
-	if err := o.client.Get(ctx, client.ObjectKey{Name: clusterRoleName}, clusterRole); err == nil {
-		if err := o.client.Delete(ctx, clusterRole); err != nil {
+	if err := o.client.Get(ctx, client.ObjectKey{Name: clusterRoleBindingName}, clusterRole); err == nil {
+		lg.Info("Deleting ClusterRole", "name", clusterRoleBindingName)
+		// Retry on conflict or server timeout
+		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+			return apierrors.IsConflict(err) || apierrors.IsServerTimeout(err)
+		}, func() error {
+			return o.client.Delete(ctx, clusterRole)
+		}); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to delete ClusterRole: %w", err)
 		}
 	}
@@ -607,10 +696,11 @@ func (o *breakglassOperator) deleteClusterWideRBAC(ctx context.Context, bg *acce
 	return nil
 }
 
-// deleteNamespaceSpecificRBAC deletes Role and RoleBinding for each namespace
-// Uses child spans per namespace for granular timing and error tracking
+// deleteNamespaceSpecificRBAC deletes Roles and RoleBindings from all namespaces
 func (o *breakglassOperator) deleteNamespaceSpecificRBAC(ctx context.Context, bg *accessv1alpha1.Breakglass) error {
-	// Get all namespaces from the rules
+	lg := log.FromContext(ctx).V(1)
+
+	// Get all namespaces where we created RBAC resources
 	namespaces := make(map[string]bool)
 	for _, rule := range bg.Spec.AccessPolicy.Rules {
 		for _, namespace := range rule.Namespaces {
@@ -618,34 +708,57 @@ func (o *breakglassOperator) deleteNamespaceSpecificRBAC(ctx context.Context, bg
 		}
 	}
 
-	// Delete RoleBinding and Role for each namespace with child spans
+	// Also check for resources with our labels in case of cross-namespace cleanup
+	roleList := &rbacv1.RoleList{}
+	if err := o.client.List(ctx, roleList, client.MatchingLabels(map[string]string{
+		"breakglass": bg.Name,
+		"managed-by": "firedoor",
+	})); err == nil {
+		for _, role := range roleList.Items {
+			namespaces[role.Namespace] = true
+		}
+	}
+
+	roleBindingList := &rbacv1.RoleBindingList{}
+	if err := o.client.List(ctx, roleBindingList, client.MatchingLabels(map[string]string{
+		"breakglass": bg.Name,
+		"managed-by": "firedoor",
+	})); err == nil {
+		for _, roleBinding := range roleBindingList.Items {
+			namespaces[roleBinding.Namespace] = true
+		}
+	}
+
+	// Delete Role and RoleBinding from each namespace
 	for namespace := range namespaces {
-		err := telemetry.RecordNamespaceOperation(ctx, "DeleteNamespaceRBAC", namespace, func() error {
-			// Delete RoleBinding
-			roleBinding := &rbacv1.RoleBinding{}
-			roleBindingName := safeName(bg.Name)
+		roleName := safeName(bg.Name)
 
-			if err := o.client.Get(ctx, client.ObjectKey{Name: roleBindingName, Namespace: namespace}, roleBinding); err == nil {
-				if err := o.client.Delete(ctx, roleBinding); err != nil {
-					return fmt.Errorf("failed to delete RoleBinding in namespace %s: %w", namespace, err)
-				}
+		// Delete RoleBinding
+		roleBinding := &rbacv1.RoleBinding{}
+		if err := o.client.Get(ctx, client.ObjectKey{Name: roleName, Namespace: namespace}, roleBinding); err == nil {
+			lg.Info("Deleting RoleBinding", "name", roleName, "namespace", namespace)
+			// Retry on conflict or server timeout
+			if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+				return apierrors.IsConflict(err) || apierrors.IsServerTimeout(err)
+			}, func() error {
+				return o.client.Delete(ctx, roleBinding)
+			}); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to delete RoleBinding in namespace %s: %w", namespace, err)
 			}
+		}
 
-			// Delete Role
-			role := &rbacv1.Role{}
-			roleName := safeName(bg.Name)
-
-			if err := o.client.Get(ctx, client.ObjectKey{Name: roleName, Namespace: namespace}, role); err == nil {
-				if err := o.client.Delete(ctx, role); err != nil {
-					return fmt.Errorf("failed to delete Role in namespace %s: %w", namespace, err)
-				}
+		// Delete Role
+		role := &rbacv1.Role{}
+		if err := o.client.Get(ctx, client.ObjectKey{Name: roleName, Namespace: namespace}, role); err == nil {
+			lg.Info("Deleting Role", "name", roleName, "namespace", namespace)
+			// Retry on conflict or server timeout
+			if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+				return apierrors.IsConflict(err) || apierrors.IsServerTimeout(err)
+			}, func() error {
+				return o.client.Delete(ctx, role)
+			}); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to delete Role in namespace %s: %w", namespace, err)
 			}
-
-			return nil
-		})
-
-		if err != nil {
-			return err
 		}
 	}
 
@@ -691,23 +804,24 @@ func (o *breakglassOperator) updateRevokedStatus(bg *accessv1alpha1.Breakglass) 
 
 // setRevokedConditions sets the conditions for revoked access
 func (o *breakglassOperator) setRevokedConditions(bg *accessv1alpha1.Breakglass) {
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Expired.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.AccessExpired.String(),
-		Message:            conditions.BreakglassAccessExpiredAndRevoked.String(),
-	})
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Active.String(),
-		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.AccessExpired.String(),
-		Message:            conditions.AccessIsNoLongerActive.String(),
-	})
+	o.createCondition(bg, conditions.Expired, metav1.ConditionTrue, conditions.AccessExpired, "Breakglass access expired and revoked")
+	o.createCondition(bg, conditions.Active, metav1.ConditionFalse, conditions.AccessExpired, "Access is no longer active")
 }
 
 // emitEvent emits a Kubernetes event
 func (o *breakglassOperator) emitEvent(bg *accessv1alpha1.Breakglass, eventType, reason, message string) {
 	o.recorder.Event(bg, eventType, reason, message)
+}
+
+// createCondition creates a new condition using meta.SetStatusCondition to avoid duplicates
+func (o *breakglassOperator) createCondition(bg *accessv1alpha1.Breakglass, conditionType conditions.Condition, status metav1.ConditionStatus, reason conditions.Reason, message string) {
+	condition := metav1.Condition{
+		Type:               string(conditionType),
+		Status:             status,
+		Reason:             string(reason),
+		Message:            message,
+		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: bg.Generation,
+	}
+	meta.SetStatusCondition(&bg.Status.Conditions, condition)
 }

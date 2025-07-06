@@ -31,17 +31,46 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 	"github.com/cloud-nimbus/firedoor/internal/alerting"
 	"github.com/cloud-nimbus/firedoor/internal/conditions"
 	"github.com/cloud-nimbus/firedoor/internal/config"
 	"github.com/cloud-nimbus/firedoor/internal/telemetry"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 )
 
 var tracer = otel.Tracer("firedoor/internal/controller/breakglass")
+
+const (
+	breakglassFinalizer = "breakglass.firedoor.cloudnimbus.io/finalizer"
+	AutoApprover        = "system-auto-approve"
+)
+
+// contains checks if a slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// remove removes a string from a slice
+func remove(slice []string, item string) []string {
+	result := make([]string, 0, len(slice))
+	for _, s := range slice {
+		if s != item {
+			result = append(result, s)
+		}
+	}
+	return result
+}
 
 // BreakglassReconciler reconciles a Breakglass object
 type BreakglassReconciler struct {
@@ -94,6 +123,13 @@ func (r *BreakglassReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Handle finalizer for cleanup of cross-namespace resources
+	if bg.DeletionTimestamp != nil {
+		// Mark telemetry for finalizer flow
+		telemetry.RecordOperation(telemetry.OpDelete, telemetry.ResultSuccess, telemetry.ComponentController, "finalizer", req.Namespace)
+		return r.handleFinalizer(ctx, req.NamespacedName)
+	}
+
 	// Record creation metric if this is a new breakglass
 	if bg.Status.Phase == "" {
 		telemetry.RecordOperation(telemetry.OpCreate, telemetry.ResultSuccess, telemetry.ComponentController, telemetry.RoleUnknown, req.Namespace)
@@ -137,6 +173,16 @@ func isExpired(bg *accessv1alpha1.Breakglass) bool {
 
 // handleNewBreakglass handles a newly created breakglass
 func (r *BreakglassReconciler) handleNewBreakglass(ctx context.Context, bg *accessv1alpha1.Breakglass) (ctrl.Result, error) {
+	// Add finalizer if not present
+	if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
+		controllerutil.AddFinalizer(bg, breakglassFinalizer)
+		if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+			return r.Client.Update(ctx, bg)
+		}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
+		}
+	}
+
 	// Set initial phase based on whether it's recurring or not
 	if bg.Spec.Recurring {
 		bg.Status.Phase = accessv1alpha1.PhaseRecurringPending
@@ -158,20 +204,22 @@ func (r *BreakglassReconciler) handleNewBreakglass(ctx context.Context, bg *acce
 	bg.Status.ApprovedBy = ""
 	bg.Status.ApprovedAt = nil
 
-	if err := r.Client.Status().Update(ctx, bg); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	// If approval is not required, auto-approve
 	if !bg.Spec.ApprovalRequired {
 		now := metav1.Now()
-		bg.Status.ApprovedBy = "system-auto-approve"
+		bg.Status.ApprovedBy = AutoApprover
 		bg.Status.ApprovedAt = &now
-		if err := r.Client.Status().Update(ctx, bg); err != nil {
-			return ctrl.Result{}, err
-		}
+	}
 
-		// Handle based on whether it's recurring or not
+	// Single status update with all changes
+	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		return r.Client.Status().Update(ctx, bg)
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// If approval is not required, handle based on whether it's recurring or not
+	if !bg.Spec.ApprovalRequired {
 		if bg.Spec.Recurring {
 			return r.handleRecurringPendingBreakglass(ctx, bg)
 		} else {
@@ -211,10 +259,12 @@ func (r *BreakglassReconciler) handlePendingBreakglass(ctx context.Context, bg *
 		span := trace.SpanFromContext(ctx)
 		span.SetStatus(codes.Error, err.Error())
 		telemetry.RecordReconciliationActive(nsKey, false)
-	} else {
-		telemetry.RecordReconciliationActive(nsKey, true)
+		return result, err
 	}
-	return result, err
+
+	telemetry.RecordReconciliationActive(nsKey, true)
+	// Small requeue so the controller sees the new Phase/ExpiresAt right away
+	return ctrl.Result{RequeueAfter: time.Second}, nil
 }
 
 // handleActiveBreakglass handles a breakglass in Active phase
@@ -281,7 +331,7 @@ func (r *BreakglassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	r.alertService = alerting.NewAlertmanagerService(&r.Config.Alertmanager, r.Recorder)
-	r.operator = NewBreakglassOperator(r.Client, r.Recorder, r.alertService)
+	r.operator = NewBreakglassOperator(r.Client, r.Recorder, r.alertService, r.Config.Controller.PrivilegeEscalation)
 	r.recurringManager = NewRecurringBreakglassManager(time.UTC)
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&accessv1alpha1.Breakglass{}).
@@ -311,7 +361,9 @@ func (r *BreakglassReconciler) ApproveBreakglass(ctx context.Context, bg *access
 		Message:            fmt.Sprintf("Approved by %s", approver),
 	})
 
-	if err := r.Client.Status().Update(ctx, bg); err != nil {
+	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		return r.Client.Status().Update(ctx, bg)
+	}); err != nil {
 		return fmt.Errorf("failed to update breakglass status: %w", err)
 	}
 
@@ -341,7 +393,9 @@ func (r *BreakglassReconciler) DenyBreakglass(ctx context.Context, bg *accessv1a
 		Message:            fmt.Sprintf("Denied by %s: %s", denier, reason),
 	})
 
-	if err := r.Client.Status().Update(ctx, bg); err != nil {
+	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		return r.Client.Status().Update(ctx, bg)
+	}); err != nil {
 		return fmt.Errorf("failed to update breakglass status: %w", err)
 	}
 
@@ -374,7 +428,9 @@ func (r *BreakglassReconciler) RevokeBreakglass(ctx context.Context, bg *accessv
 		Message:            fmt.Sprintf("Revoked by %s: %s", revoker, reason),
 	})
 
-	if err := r.Client.Status().Update(ctx, bg); err != nil {
+	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		return r.Client.Status().Update(ctx, bg)
+	}); err != nil {
 		return fmt.Errorf("failed to update breakglass status: %w", err)
 	}
 
@@ -461,7 +517,9 @@ func (r *BreakglassReconciler) handleRecurringActiveBreakglass(ctx context.Conte
 			return result, err
 		}
 
-		if err := r.Client.Status().Update(ctx, bg); err != nil {
+		if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+			return r.Client.Status().Update(ctx, bg)
+		}); err != nil {
 			return result, err
 		}
 
@@ -474,4 +532,30 @@ func (r *BreakglassReconciler) handleRecurringActiveBreakglass(ctx context.Conte
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// handleFinalizer handles the finalizer for cleanup of cross-namespace resources
+func (r *BreakglassReconciler) handleFinalizer(ctx context.Context, key client.ObjectKey) (ctrl.Result, error) {
+	return ctrl.Result{}, retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		// ➊ fresh copy each attempt
+		var bg accessv1alpha1.Breakglass
+		if err := r.Client.Get(ctx, key, &bg); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+
+		if bg.DeletionTimestamp.IsZero() || !contains(bg.Finalizers, breakglassFinalizer) {
+			return nil // nothing to do
+		}
+
+		// ➋ revoke only if still Active
+		if bg.Status.Phase == accessv1alpha1.PhaseActive || bg.Status.Phase == accessv1alpha1.PhaseRecurringActive {
+			if _, err := r.operator.RevokeAccess(ctx, &bg); err != nil && !apierrors.IsNotFound(err) { // tolerate already-gone RBAC
+				return err
+			}
+		}
+
+		// ➌ remove finalizer
+		bg.Finalizers = remove(bg.Finalizers, breakglassFinalizer)
+		return r.Client.Update(ctx, &bg)
+	})
 }
