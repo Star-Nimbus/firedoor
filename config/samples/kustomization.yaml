@@ -1,4 +1,0 @@
-## Append samples of your project ##
-resources:
-- access_v1alpha1_breakglass.yaml
-#+kubebuilder:scaffold:manifestskustomizesamples

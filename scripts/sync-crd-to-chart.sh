@@ -8,7 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 CHART_CRD_FILE="$PROJECT_ROOT/../charts/firedoor-crds/templates/crds.yaml"
-BASE_CRD_FILE="$PROJECT_ROOT/config/crd/bases/access.cloudnimbus.io_breakglasses.yaml"
+BASE_CRD_FILE="$PROJECT_ROOT/kustomize/crd/bases/access.cloudnimbus.io_breakglasses.yaml"
 
 echo "🔄 Syncing CRD from base to Helm chart..."
 

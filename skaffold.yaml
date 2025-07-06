@@ -40,7 +40,7 @@ manifests:
   # Install CRDs first as a dependency
   kustomize:
     paths:
-      - config/crd
+      - kustomize/tempo
 deploy:
   kubectl: {}
   helm:
@@ -51,23 +51,23 @@ deploy:
         createNamespace: true
         repo: https://prometheus-community.github.io/helm-charts
         valuesFiles:
-          - config/prometheus/dev.yaml
+          - kustomize/prometheus/dev.yaml
       - name: otel-collector
         remoteChart: opentelemetry-collector
         namespace: telemetry-system
         createNamespace: true
         repo: https://open-telemetry.github.io/opentelemetry-helm-charts
         valuesFiles:
-          - config/telemetry/otel-collector-values.yaml
+          - kustomize/telemetry/otel-collector-values.yaml
       - name: tempo
         remoteChart: tempo-distributed
         namespace: telemetry-system
         createNamespace: true
         repo: https://grafana.github.io/helm-charts
         valuesFiles:
-          - config/tempo/dev.yaml
+          - kustomize/tempo/dev.yaml
       - name: firedoor-operator
-        chartPath: config/chart/
+        chartPath: charts/firedoor/
         namespace: firedoor-system
         createNamespace: true
         setValueTemplates:
@@ -75,7 +75,7 @@ deploy:
           image.tag: "{{.IMAGE_TAG_star_nimbus_io_firedoor_operator}}@{{.IMAGE_DIGEST_star_nimbus_io_firedoor_operator}}"
           image.pullPolicy: IfNotPresent
         valuesFiles:
-          - config/chart/values/all.yaml
+          - charts/firedoor/values/all.yaml
     hooks:
       before: []
       after:
@@ -98,12 +98,6 @@ portForward:
   port: 9090
   namespace: metrics-system
   localPort: 9090
-  address: 127.0.0.1
-- resourceName: tempo-query-frontend
-  resourceType: service
-  port: 9095
-  namespace: telemetry-system
-  localPort: 9095
   address: 127.0.0.1
 
 profiles:
@@ -150,7 +144,7 @@ profiles:
     patches:
       - op: replace
         path: /deploy/helm/releases/3/valuesFiles/0
-        value: config/chart/values/metrics.yaml
+        value: charts/firedoor/values/metrics.yaml
       # remove otel-collector
       - op: remove
         path: /deploy/helm/releases/1
@@ -163,7 +157,7 @@ profiles:
     patches:
       - op: replace
         path: /deploy/helm/releases/3/valuesFiles/0
-        value: config/chart/values/dev.yaml
+        value: charts/firedoor/values/dev.yaml
       # remove monitoring
       - op: remove
         path: /deploy/helm/releases/0

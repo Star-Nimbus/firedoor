@@ -5,6 +5,7 @@ Firedoor is a Kubernetes operator for managing breakglass access to the cluster.
 ## Features
 
 - **Breakglass Access**: Temporary elevated access for emergency situations
+- **Recurring Access**: Scheduled recurring access for maintenance and regular tasks
 - **Audit Trails**: Complete logging and tracking of access requests
 - **Compliance**: Built-in compliance frameworks and reporting
 - **Secure**: Zero-trust principles with time-limited access
@@ -37,12 +38,89 @@ kind: Breakglass
 metadata:
   name: emergency-access
 spec:
-  justification: "Critical production issue requiring immediate access"
+  # Subjects define who gets access
+  subjects:
+    - kind: User
+      name: "alice@example.com"
+    - kind: Group
+      name: "devops-team"
+  
+  # Inline RBAC rules
+  accessPolicy:
+    rules:
+      - actions: ["get", "list", "patch"]
+        apiGroups: [""]
+        resources: ["pods", "services"]
+        namespaces: ["production"]
+  
+  # Approval workflow
+  approvalRequired: true
+  
+  # Duration of access
   duration: "1h"
-  permissions:
-    - namespaces: ["production"]
-      verbs: ["get", "list", "patch"]
+  
+  # Required justification
+  justification: "Critical production issue requiring immediate access"
 EOF
+
+### Recurring Access
+
+For regular maintenance tasks or scheduled operations, you can create recurring breakglass access:
+
+```bash
+# Create recurring access for daily maintenance
+kubectl create -f - <<EOF
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: daily-maintenance
+spec:
+  subjects:
+    - kind: User
+      name: "maintenance-team@example.com"
+    - kind: Group
+      name: "devops-engineers"
+  
+  clusterRoles:
+    - "maintenance-admin"
+  
+  approvalRequired: false
+  duration: "2h"
+  justification: "Daily system maintenance and health checks"
+  
+  # Enable recurring access
+  recurring: true
+  
+  # Cron schedule: Every weekday at 6 AM UTC
+  # Format: "minute hour day-of-month month day-of-week"
+  recurrenceSchedule: "0 6 * * 1-5"
+EOF
+```
+
+#### Cron Schedule Format
+
+The `recurrenceSchedule` field uses standard cron syntax:
+
+- `"0 9 * * 1-5"` - Weekdays at 9 AM
+- `"0 0 * * *"` - Daily at midnight
+- `"0 9 * * 1"` - Mondays at 9 AM
+- `"0 2 1 * *"` - First day of month at 2 AM
+
+#### Recurring Access States
+
+Recurring breakglass resources have special phases:
+
+- `RecurringPending`: Waiting for the next scheduled activation
+- `RecurringActive`: Currently active and granting access
+- `Expired`: Access has expired and will be reactivated at the next schedule
+
+The controller automatically manages the lifecycle of recurring access, including:
+
+- Calculating next activation times
+- Tracking activation counts
+- Managing transitions between states
+- Providing metrics for monitoring
+
 ```
 
 ## Development
@@ -169,12 +247,157 @@ The operator exposes Prometheus metrics on `:8080/metrics`:
 - `firedoor_breakglass_requests_total`: Total breakglass requests
 - `firedoor_breakglass_active`: Currently active breakglass sessions
 - `firedoor_breakglass_denied_total`: Total denied requests
+- `firedoor_recurring_breakglass_activation_total`: Total recurring breakglass activations
+- `firedoor_recurring_breakglass_expiration_total`: Total recurring breakglass expirations
+- `firedoor_recurring_breakglass_active`: Currently active recurring breakglass sessions
 
 ### Tracing
 
 OpenTelemetry tracing can be enabled for observability:
 
 The Helm chart configures the collector to listen on gRPC only. See `charts/firedoor/values.yaml` for details.
+
+## Alerting
+
+### Alertmanager Integration
+
+Firedoor can send alerts to Alertmanager when breakglass access becomes active or expires. This provides real-time notifications to your team about emergency access usage.
+
+#### Configuration
+
+Enable Alertmanager integration in your Helm values:
+
+```yaml
+alertmanager:
+  enabled: true
+  url: "http://alertmanager.telemetry-system.svc.cluster.local:9093"
+  timeout: 30s
+  
+  # Basic authentication (optional)
+  basicAuth:
+    username: ""
+    password: ""
+  
+  # TLS configuration (optional)
+  tls:
+    insecureSkipVerify: false
+    caFile: ""
+    certFile: ""
+    keyFile: ""
+  
+  # Alert configuration
+  alert:
+    # Labels to add to all alerts
+    labels:
+      team: "platform"
+      component: "firedoor"
+    
+    # Annotations to add to all alerts
+    annotations:
+      runbook_url: "https://wiki.company.com/runbooks/breakglass-access"
+    
+    # Alert name
+    alertName: "BreakglassActive"
+    
+    # Severity level
+    severity: "warning"
+    
+    # Summary template
+    summary: "Breakglass access is active"
+    
+    # Description template
+    description: "A breakglass access request is currently active"
+```
+
+#### Alert Types
+
+Firedoor sends two types of alerts:
+
+1. **Active Alerts**: Sent when breakglass access becomes active
+   - Includes justification, approved by, subjects, and expiry time
+   - Alert starts when access is granted and ends when access expires
+
+2. **Expired Alerts**: Sent when breakglass access expires
+   - Includes information about the expired access
+   - Used for audit and compliance purposes
+
+#### Alert Labels and Annotations
+
+Each alert includes:
+
+**Labels:**
+
+- `alertname`: The configured alert name (default: "BreakglassActive")
+- `severity`: Alert severity level
+- `breakglass_name`: Name of the breakglass resource
+- `breakglass_namespace`: Namespace of the breakglass resource
+- `status`: "active" or "expired"
+
+**Annotations:**
+
+- `summary`: Alert summary
+- `description`: Alert description
+- `justification`: The justification provided for the breakglass access
+- `approved_by`: Who approved the access
+- `subjects`: List of users/groups granted access
+- `ticket_id`: Associated ticket ID (if provided)
+- `expires_at`: When the access expires (for active alerts)
+- `granted_at`: When the access was granted (for expired alerts)
+
+#### Example Alertmanager Configuration
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: telemetry-system
+data:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 5m
+    
+    route:
+      group_by: ['alertname', 'breakglass_name']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'breakglass-team'
+      routes:
+      - match:
+          alertname: BreakglassActive
+        receiver: 'breakglass-team'
+        group_by: ['breakglass_name', 'breakglass_namespace']
+        repeat_interval: 30m  # Repeat every 30 minutes while active
+    
+    receivers:
+    - name: 'breakglass-team'
+      slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#platform-alerts'
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        send_resolved: true
+    
+    inhibit_rules:
+    - source_match:
+        alertname: BreakglassActive
+        status: active
+      target_match:
+        alertname: BreakglassActive
+        status: expired
+      equal: ['breakglass_name', 'breakglass_namespace']
+```
+
+#### Metrics
+
+Alert-related metrics are available:
+
+- `firedoor_alerts_sent_total`: Total number of alerts sent to Alertmanager
+- `firedoor_alert_send_duration_seconds`: Duration of alert send operations
+- `firedoor_alert_send_errors_total`: Total number of alert send errors
+
+See `examples/breakglass-flow/06-alertmanager-config.yaml` for a complete example configuration.
 
 ## Security
 
@@ -214,7 +437,7 @@ Firedoor defines the following CRD:
 - **Version:** `v1alpha1`
 - **Kind:** `Breakglass`
 
-The `Breakglass` resource allows you to request and manage emergency access. The `group` field can be used to specify a user group for access (in addition to or instead of a user):
+The `Breakglass` resource allows you to request and manage emergency access with enhanced RBAC modeling:
 
 ```yaml
 apiVersion: access.cloudnimbus.io/v1alpha1
@@ -222,11 +445,26 @@ kind: Breakglass
 metadata:
   name: emergency-access
 spec:
-  group: "devops-team"
-  durationMinutes: 60
-  namespace: "production"
-  role: "admin"
-  approved: true
+  # Subjects define who gets access
+  subjects:
+    - kind: User
+      name: "alice@example.com"
+    - kind: Group
+      name: "devops-team"
+  
+  # Use existing ClusterRoles or define inline rules
+  clusterRoles: ["cluster-admin"]
+  # OR
+  accessPolicy:
+    rules:
+      - actions: ["get", "list", "patch"]
+        apiGroups: [""]
+        resources: ["pods", "services"]
+        namespaces: ["production"]
+  
+  approvalRequired: true
+  duration: "1h"
+  justification: "Production outage troubleshooting"
 ```
 
 - `group`: (string) The user group to grant access to. Either `user` or `group` must be provided.

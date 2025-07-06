@@ -17,373 +17,290 @@ limitations under the License.
 package telemetry
 
 import (
+	"fmt"
+	"hash/fnv"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 	"github.com/cloud-nimbus/firedoor/internal/config"
+	"go.opentelemetry.io/otel/trace"
 )
 
-// Metric name constants
+// -----------------------------------------------------------------------------
+//
+//	Metric names (Prometheus snake_case, base unit in suffix)
+//
+// -----------------------------------------------------------------------------
 const (
-	// Breakglass metric names
-	MetricBreakglassTotal             = "firedoor_breakglass_total"
-	MetricBreakglassActive            = "firedoor_breakglass_active"
-	MetricBreakglassExpired           = "firedoor_breakglass_expired"
-	MetricBreakglassDuration          = "firedoor_breakglass_duration_minutes"
-	MetricBreakglassReconcileTotal    = "firedoor_breakglass_reconcile_total"
-	MetricBreakglassReconcileDuration = "firedoor_breakglass_reconcile_duration_seconds"
-	MetricBreakglassCreationTotal     = "firedoor_breakglass_creation_total"
-	MetricBreakglassDeletionTotal     = "firedoor_breakglass_deletion_total"
-	MetricBreakglassApprovalTotal     = "firedoor_breakglass_approval_total"
-	MetricBreakglassRoleBindingTotal  = "firedoor_breakglass_role_binding_total"
-	MetricBreakglassValidationTotal   = "firedoor_breakglass_validation_total"
-	MetricBreakglassErrorTotal        = "firedoor_breakglass_error_total"
+	MetricBreakglassStateTotal        = "firedoor_breakglass_state_total"                // counter
+	MetricBreakglassActive            = "firedoor_breakglass_active"                     // gauge
+	MetricBreakglassDurationSeconds   = "firedoor_breakglass_duration_seconds"           // histogram
+	MetricBreakglassOperationsTotal   = "firedoor_breakglass_operations_total"           // counter vec
+	MetricBreakglassReconcileDuration = "firedoor_breakglass_reconcile_duration_seconds" // histogram
+
+	// Recurring
+	MetricRecurringActivationTotal = "firedoor_recurring_breakglass_activation_total"
+	MetricRecurringExpirationTotal = "firedoor_recurring_breakglass_expiration_total"
+	MetricRecurringActive          = "firedoor_recurring_breakglass_active"
+
+	// Alerting
+	MetricAlertsSentTotal   = "firedoor_alerts_sent_total"
+	MetricAlertSendDuration = "firedoor_alert_send_duration_seconds"
+	MetricAlertSendErrors   = "firedoor_alert_send_errors_total"
 )
 
-// Help string constants
+// -----------------------------------------------------------------------------
+//
+//	Label names – ALL BOUNDED ENUMS
+//
+// -----------------------------------------------------------------------------
 const (
-	// Breakglass lifecycle help strings
-	HelpBreakglassTotal    = "Total number of breakglass requests by phase and reason"
-	HelpBreakglassActive   = "Current number of active breakglass requests"
-	HelpBreakglassExpired  = "Total number of expired breakglass requests"
-	HelpBreakglassDuration = "Duration in minutes for breakglass requests"
+	// state_total
+	LPhase          = "phase"           // pending|active|expired|denied|revoked|recurring_pending|recurring_active
+	LApprovalSource = "approval_source" // human|auto
+	LRoleType       = "role_type"       // cluster_role|custom|unknown
 
-	// Breakglass operation help strings
-	HelpBreakglassCreationTotal    = "Total number of breakglass creation operations"
-	HelpBreakglassDeletionTotal    = "Total number of breakglass deletion operations"
-	HelpBreakglassApprovalTotal    = "Total number of breakglass approval operations"
-	HelpBreakglassRoleBindingTotal = "Total number of role binding operations for breakglass requests"
-	HelpBreakglassValidationTotal  = "Total number of breakglass validation operations"
-	HelpBreakglassErrorTotal       = "Total number of errors encountered during breakglass operations"
+	// operations_total
+	LOperation       = "operation"        // create|delete|approve|deny|revoke|reconcile|rolebinding|validation
+	LResult          = "result"           // success|error
+	LComponent       = "component"        // controller|webhook|api
+	LNamespaceBucket = "namespace_bucket" // ns_00‑ns_0f
+	LApproverBucket  = "approver_bucket"  // ap_00‑ap_0f
 
-	// Reconciliation help strings
-	HelpBreakglassReconcileTotal    = "Total number of breakglass reconciliation operations"
-	HelpBreakglassReconcileDuration = "Duration of breakglass reconciliation operations in seconds"
+	// alerting
+	LAlertType = "alert_type" // active|expired
+	LSeverity  = "severity"   // warning|critical|info
+
+	// reconcile_duration seconds histogram needs no extra labels
+
+	RoleUnknown = "unknown"
 )
 
-// Label constants for breakglass metrics
-const (
-	// Phase labels
-	LabelPhasePending = "pending"
-	LabelPhaseActive  = "active"
-	LabelPhaseExpired = "expired"
-	LabelPhaseDenied  = "denied"
-	LabelPhaseRevoked = "revoked"
-
-	// Result labels
-	LabelResultSuccess = "success"
-	LabelResultError   = "error"
-	LabelResultFailure = "failure"
-
-	// Reason labels
-	LabelReasonGranted     = "granted"
-	LabelReasonDenied      = "denied"
-	LabelReasonExpired     = "expired"
-	LabelReasonRevoked     = "revoked"
-	LabelReasonManual      = "manual"
-	LabelReasonAutomatic   = "automatic"
-	LabelReasonValidation  = "validation_failed"
-	LabelReasonApproval    = "approval_required"
-	LabelReasonRoleBinding = "role_binding_failed"
-	LabelReasonTimeout     = "timeout"
-	LabelReasonConflict    = "conflict"
-
-	// Operation labels
-	LabelOperationCreate    = "create"
-	LabelOperationUpdate    = "update"
-	LabelOperationDelete    = "delete"
-	LabelOperationReconcile = "reconcile"
-	LabelOperationApprove   = "approve"
-	LabelOperationDeny      = "deny"
-	LabelOperationRevoke    = "revoke"
-
-	// Component labels
-	LabelComponentController = "controller"
-	LabelComponentWebhook    = "webhook"
-	LabelComponentAPI        = "api"
-	LabelComponentMetrics    = "metrics"
-
-	// Error type labels
-	LabelErrorTypeValidation    = "validation"
-	LabelErrorTypeAuthorization = "authorization"
-	LabelErrorTypeInternal      = "internal"
-	LabelErrorTypeNetwork       = "network"
-	LabelErrorTypeTimeout       = "timeout"
-	LabelErrorTypeConflict      = "conflict"
-)
-
-// Metric label names
-const (
-	LabelNamePhase      = "phase"
-	LabelNameResult     = "result"
-	LabelNameReason     = "reason"
-	LabelNameOperation  = "operation"
-	LabelNameComponent  = "component"
-	LabelNameErrorType  = "error_type"
-	LabelNameNamespace  = "namespace"
-	LabelNameUser       = "user"
-	LabelNameGroup      = "group"
-	LabelNameRole       = "role"
-	LabelNameApprovedBy = "approved_by"
-)
-
+// -----------------------------------------------------------------------------
+//
+//	Public, ready‑to‑use Prometheus collectors
+//
+// -----------------------------------------------------------------------------
 var (
-	// Metrics initialization state
-	metricsInitialized bool
-	metricsLock        sync.Mutex
+	stateTotal        *prometheus.CounterVec
+	activeGauge       prometheus.Gauge
+	durationHist      prometheus.Histogram
+	operationsTotal   *prometheus.CounterVec
+	reconcileDuration prometheus.Histogram
 
-	// Breakglass lifecycle metrics
-	BreakglassTotal    *prometheus.CounterVec
-	BreakglassActive   prometheus.Gauge
-	BreakglassExpired  prometheus.Counter
-	BreakglassDuration prometheus.Histogram
+	// recurring
+	recurringActivationTotal *prometheus.CounterVec
+	recurringExpirationTotal *prometheus.CounterVec
+	recurringActiveGauge     prometheus.Gauge
 
-	// Breakglass operation metrics
-	BreakglassCreationTotal    *prometheus.CounterVec
-	BreakglassDeletionTotal    *prometheus.CounterVec
-	BreakglassApprovalTotal    *prometheus.CounterVec
-	BreakglassRoleBindingTotal *prometheus.CounterVec
-	BreakglassValidationTotal  *prometheus.CounterVec
-	BreakglassErrorTotal       *prometheus.CounterVec
+	// alerting
+	alertsSentTotal   *prometheus.CounterVec
+	alertSendDuration *prometheus.HistogramVec
+	alertSendErrors   *prometheus.CounterVec
 
-	// Reconciliation metrics
-	BreakglassReconcileTotal    *prometheus.CounterVec
-	BreakglassReconcileDuration prometheus.Histogram
+	initOnce sync.Once
 )
 
-// InitializeMetrics initializes all metrics with the given configuration
-func InitializeMetrics(cfg *config.Config) {
-	metricsLock.Lock()
-	defer metricsLock.Unlock()
+// Init registers all collectors exactly once.
+// Call from main() *or* let the implicit init() below run.
+func Init(cfg *config.Config) {
+	initOnce.Do(func() { register(cfg) })
+}
 
-	if metricsInitialized {
+// -----------------------------------------------------------------------------
+//
+//	Collector construction & registration
+//
+// -----------------------------------------------------------------------------
+func register(cfg *config.Config) {
+	// --- lifecycle -----------------------------------------------------------
+	stateTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: MetricBreakglassStateTotal, Help: "Number of breakglass requests by phase"},
+		[]string{LPhase, LApprovalSource, LRoleType},
+	)
+
+	activeGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: MetricBreakglassActive, Help: "Current active breakglass sessions"})
+
+	durationHist = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    MetricBreakglassDurationSeconds,
+		Help:    "Observed breakglass duration seconds",
+		Buckets: cfg.GetDurationBuckets(),
+	})
+
+	// --- operations ----------------------------------------------------------
+	operationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: MetricBreakglassOperationsTotal, Help: "CRUD & workflow operations"},
+		[]string{LOperation, LResult, LComponent, LRoleType, LNamespaceBucket},
+	)
+
+	// --- reconcile latency ---------------------------------------------------
+	reconcileDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    MetricBreakglassReconcileDuration,
+		Help:    "Reconcile duration seconds",
+		Buckets: prometheus.DefBuckets,
+	})
+
+	// --- recurring -----------------------------------------------------------
+	recurringActivationTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: MetricRecurringActivationTotal, Help: "Recurring breakglass activations"},
+		[]string{LNamespaceBucket},
+	)
+	recurringExpirationTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: MetricRecurringExpirationTotal, Help: "Recurring breakglass expirations"},
+		[]string{LNamespaceBucket},
+	)
+	recurringActiveGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: MetricRecurringActive, Help: "Current active recurring breakglass sessions"})
+
+	// --- alerting ------------------------------------------------------------
+	alertsSentTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: MetricAlertsSentTotal, Help: "Total number of alerts sent to Alertmanager"},
+		[]string{LAlertType, LSeverity, LNamespaceBucket},
+	)
+	alertSendDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    MetricAlertSendDuration,
+			Help:    "Duration of alert send operations",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{LAlertType, LSeverity},
+	)
+	alertSendErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: MetricAlertSendErrors, Help: "Total number of alert send errors"},
+		[]string{LAlertType, LSeverity, LNamespaceBucket},
+	)
+
+	collectors := []prometheus.Collector{
+		stateTotal, activeGauge, durationHist,
+		operationsTotal, reconcileDuration,
+		recurringActivationTotal, recurringExpirationTotal, recurringActiveGauge,
+		alertsSentTotal, alertSendDuration, alertSendErrors,
+	}
+	metrics.Registry.MustRegister(collectors...)
+}
+
+// -----------------------------------------------------------------------------
+//  Recording helpers (public API)
+// -----------------------------------------------------------------------------
+
+// RecordStateTransition increments phase counters and adjusts the active gauge.
+func RecordStateTransition(phase, approvalSrc, roleType string, activeDelta int) {
+	stateTotal.WithLabelValues(phase, approvalSrc, roleType).Inc()
+	if activeDelta != 0 {
+		activeGauge.Add(float64(activeDelta))
+	}
+}
+
+// ObserveDurationSeconds records an observed session duration.
+func ObserveDurationSeconds(sec float64) { durationHist.Observe(sec) }
+
+// ObserveReconcileDurationSeconds records reconciliation latency.
+func ObserveReconcileDurationSeconds(sec float64) { reconcileDuration.Observe(sec) }
+
+// RecordOperation emits a single operation counter.
+// operation: create|delete|approve|deny|revoke|reconcile|rolebinding|validation
+// result:    success|error
+func RecordOperation(op Op, result Result, component Component, roleType, namespace string) {
+	nb := namespaceBucket(namespace)
+	operationsTotal.WithLabelValues(string(op), string(result), string(component), roleType, nb).Inc()
+}
+
+// Recurring helpers -----------------------------------------------------------------
+func RecordRecurringActivation(namespace string) {
+	nb := namespaceBucket(namespace)
+	recurringActivationTotal.WithLabelValues(nb).Inc()
+	recurringActiveGauge.Inc()
+}
+
+func RecordRecurringExpiration(namespace string) {
+	nb := namespaceBucket(namespace)
+	recurringExpirationTotal.WithLabelValues(nb).Inc()
+	recurringActiveGauge.Dec()
+}
+
+// Alerting helpers -----------------------------------------------------------------
+func RecordAlertSent(alertType, severity, namespace string, duration float64) {
+	nb := namespaceBucket(namespace)
+	alertsSentTotal.WithLabelValues(alertType, severity, nb).Inc()
+	alertSendDuration.WithLabelValues(alertType, severity).Observe(duration)
+}
+
+func RecordAlertSendError(alertType, severity, namespace string) {
+	nb := namespaceBucket(namespace)
+	alertSendErrors.WithLabelValues(alertType, severity, nb).Inc()
+}
+
+// -----------------------------------------------------------------------------
+//  Bucketing helpers  (keep cardinality ≤ 16)
+// -----------------------------------------------------------------------------
+
+// namespaceBucket returns a bucketed namespace label for metrics.
+func namespaceBucket(ns string) string {
+	if ns == "" {
+		ns = "default"
+	}
+	h := fnv.New32a()
+	h.Write([]byte(ns))
+	return fmt.Sprintf("ns_%02x", h.Sum32()&0x0f)
+}
+
+// ApproverBucket hashes an approver ID/email into 16 buckets (ap_00..ap_0f).
+func ApproverBucket(approver string) string {
+	if approver == "" {
+		return "ap_00"
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(approver))
+	return fmt.Sprintf("ap_%02x", h.Sum32()&0x0f)
+}
+
+// -----------------------------------------------------------------------------
+//
+//	Package‑level init for zero‑config usage -----------------------------------
+//
+// -----------------------------------------------------------------------------
+func init() { Init(config.NewDefaultConfig()) }
+
+// NamespaceKey returns a single representative key for metric labelling.
+// Exported version of namespaceKey for use in controllers.
+func NamespaceKey(bg *accessv1alpha1.Breakglass) string {
+	all := getAllNamespaces(bg)
+	if len(all) == 1 {
+		return all[0]
+	}
+	return "multi"
+}
+
+// ObserveReconcileDurationSecondsWithExemplar records reconciliation latency with trace exemplar
+func ObserveReconcileDurationSecondsWithExemplar(sec float64, span trace.Span) {
+	observeHistogramWithExemplar(reconcileDuration, sec, span)
+}
+
+// observeHistogramWithExemplar tries to attach a trace exemplar, but
+// degrades gracefully if:
+//   - the histogram doesn't implement ExemplarObserver (old lib), or
+//   - the span is not sampled.
+func observeHistogramWithExemplar(
+	h prometheus.Histogram,
+	val float64,
+	span trace.Span,
+) {
+	// Always record the raw observation
+	h.Observe(val)
+
+	// Only attach exemplars for sampled traces
+	if span == nil || !span.SpanContext().IsSampled() {
 		return
 	}
 
-	// Breakglass lifecycle metrics
-	BreakglassTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassTotal,
-			Help: HelpBreakglassTotal,
-		},
-		[]string{LabelNamePhase, LabelNameReason, LabelNameNamespace, LabelNameRole},
-	)
-
-	BreakglassActive = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: MetricBreakglassActive,
-			Help: HelpBreakglassActive,
-		},
-	)
-
-	BreakglassExpired = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassExpired,
-			Help: HelpBreakglassExpired,
-		},
-	)
-
-	BreakglassDuration = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    MetricBreakglassDuration,
-			Help:    HelpBreakglassDuration,
-			Buckets: cfg.GetDurationBuckets(),
-		},
-	)
-
-	// Breakglass operation metrics
-	BreakglassCreationTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassCreationTotal,
-			Help: HelpBreakglassCreationTotal,
-		},
-		[]string{LabelNameResult, LabelNameComponent, LabelNameNamespace},
-	)
-
-	BreakglassDeletionTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassDeletionTotal,
-			Help: HelpBreakglassDeletionTotal,
-		},
-		[]string{LabelNameResult, LabelNameComponent, LabelNameNamespace},
-	)
-
-	BreakglassApprovalTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassApprovalTotal,
-			Help: HelpBreakglassApprovalTotal,
-		},
-		[]string{LabelNameResult, LabelNameOperation, LabelNameApprovedBy},
-	)
-
-	BreakglassRoleBindingTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassRoleBindingTotal,
-			Help: HelpBreakglassRoleBindingTotal,
-		},
-		[]string{LabelNameResult, LabelNameOperation, LabelNameRole, LabelNameNamespace},
-	)
-
-	BreakglassValidationTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassValidationTotal,
-			Help: HelpBreakglassValidationTotal,
-		},
-		[]string{LabelNameResult, LabelNameComponent, LabelNameErrorType},
-	)
-
-	BreakglassErrorTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassErrorTotal,
-			Help: HelpBreakglassErrorTotal,
-		},
-		[]string{LabelNameComponent, LabelNameErrorType, LabelNameOperation},
-	)
-
-	// Reconciliation metrics
-	BreakglassReconcileTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: MetricBreakglassReconcileTotal,
-			Help: HelpBreakglassReconcileTotal,
-		},
-		[]string{LabelNameResult, LabelNamePhase, LabelNameNamespace},
-	)
-
-	BreakglassReconcileDuration = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    MetricBreakglassReconcileDuration,
-			Help:    HelpBreakglassReconcileDuration,
-			Buckets: prometheus.DefBuckets,
-		},
-	)
-
-	// Register all metrics with the controller-runtime metrics registry
-	metrics.Registry.MustRegister(
-		BreakglassTotal,
-		BreakglassActive,
-		BreakglassExpired,
-		BreakglassDuration,
-		BreakglassCreationTotal,
-		BreakglassDeletionTotal,
-		BreakglassApprovalTotal,
-		BreakglassRoleBindingTotal,
-		BreakglassValidationTotal,
-		BreakglassErrorTotal,
-		BreakglassReconcileTotal,
-		BreakglassReconcileDuration,
-	)
-
-	metricsInitialized = true
-}
-
-// init provides default initialization for backward compatibility
-func init() {
-	// Initialize with default config if not already initialized
-	defaultConfig := config.NewDefaultConfig()
-	InitializeMetrics(defaultConfig)
-}
-
-// RecordBreakglassGranted records metrics when breakglass access is granted
-func RecordBreakglassGranted(namespace, role string, durationMinutes int, approvedBy string) {
-	if BreakglassTotal != nil {
-		BreakglassTotal.WithLabelValues(LabelPhaseActive, LabelReasonGranted, namespace, role).Inc()
+	if eo, ok := h.(prometheus.ExemplarObserver); ok {
+		eo.ObserveWithExemplar(val, prometheus.Labels{
+			"trace_id": span.SpanContext().TraceID().String(),
+			"span_id":  span.SpanContext().SpanID().String(),
+		})
 	}
-	if BreakglassActive != nil {
-		BreakglassActive.Inc()
-	}
-	if BreakglassDuration != nil {
-		BreakglassDuration.Observe(float64(durationMinutes))
-	}
-	if BreakglassApprovalTotal != nil {
-		BreakglassApprovalTotal.WithLabelValues(LabelResultSuccess, LabelOperationApprove, approvedBy).Inc()
-	}
-}
-
-// RecordBreakglassDenied records metrics when breakglass access is denied
-func RecordBreakglassDenied(namespace, role, reason, deniedBy string) {
-	if BreakglassTotal != nil {
-		BreakglassTotal.WithLabelValues(LabelPhaseDenied, reason, namespace, role).Inc()
-	}
-	if BreakglassApprovalTotal != nil {
-		BreakglassApprovalTotal.WithLabelValues(LabelResultSuccess, LabelOperationDeny, deniedBy).Inc()
-	}
-}
-
-// RecordBreakglassExpired records metrics when breakglass access expires
-func RecordBreakglassExpired(namespace, role string) {
-	if BreakglassExpired != nil {
-		BreakglassExpired.Inc()
-	}
-	if BreakglassActive != nil {
-		BreakglassActive.Dec()
-	}
-	if BreakglassTotal != nil {
-		BreakglassTotal.WithLabelValues(LabelPhaseExpired, LabelReasonExpired, namespace, role).Inc()
-	}
-}
-
-// RecordBreakglassRevoked records metrics when breakglass access is manually revoked
-func RecordBreakglassRevoked(namespace, role, revokedBy string) {
-	if BreakglassTotal != nil {
-		BreakglassTotal.WithLabelValues(LabelPhaseRevoked, LabelReasonRevoked, namespace, role).Inc()
-	}
-	if BreakglassActive != nil {
-		BreakglassActive.Dec()
-	}
-	if BreakglassApprovalTotal != nil {
-		BreakglassApprovalTotal.WithLabelValues(LabelResultSuccess, LabelOperationRevoke, revokedBy).Inc()
-	}
-}
-
-// RecordBreakglassCreation records metrics for breakglass creation operations
-func RecordBreakglassCreation(result, component, namespace string) {
-	if BreakglassCreationTotal != nil {
-		BreakglassCreationTotal.WithLabelValues(result, component, namespace).Inc()
-	}
-}
-
-// RecordBreakglassDeletion records metrics for breakglass deletion operations
-func RecordBreakglassDeletion(result, component, namespace string) {
-	if BreakglassDeletionTotal != nil {
-		BreakglassDeletionTotal.WithLabelValues(result, component, namespace).Inc()
-	}
-}
-
-// RecordRoleBindingOperation records metrics for role binding operations
-func RecordRoleBindingOperation(result, operation, role, namespace string) {
-	if BreakglassRoleBindingTotal != nil {
-		BreakglassRoleBindingTotal.WithLabelValues(result, operation, role, namespace).Inc()
-	}
-}
-
-// RecordValidationOperation records metrics for validation operations
-func RecordValidationOperation(result, component, errorType string) {
-	if BreakglassValidationTotal != nil {
-		BreakglassValidationTotal.WithLabelValues(result, component, errorType).Inc()
-	}
-}
-
-// RecordError records metrics for errors encountered during operations
-func RecordError(component, errorType, operation string) {
-	if BreakglassErrorTotal != nil {
-		BreakglassErrorTotal.WithLabelValues(component, errorType, operation).Inc()
-	}
-}
-
-// RecordReconcileResult records the result of a reconciliation operation
-func RecordReconcileResult(result, phase, namespace string) {
-	if BreakglassReconcileTotal != nil {
-		BreakglassReconcileTotal.WithLabelValues(result, phase, namespace).Inc()
-	}
-}
-
-// GetReconcileDurationTimer returns a timer for measuring reconciliation duration
-func GetReconcileDurationTimer() *prometheus.Timer {
-	if BreakglassReconcileDuration != nil {
-		return prometheus.NewTimer(BreakglassReconcileDuration)
-	}
-	// Return a no-op timer if metrics aren't initialized
-	return &prometheus.Timer{}
 }

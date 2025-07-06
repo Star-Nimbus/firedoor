@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
 )
@@ -149,8 +150,22 @@ func CleanupSkaffoldDeployment(profile string) {
 
 	// Clean up any test resources
 	By("cleaning up test resources")
-	cmd := exec.Command("kubectl", "delete", "breakglass", "--all", "-n", "firedoor-system", "--ignore-not-found=true")
+	cmd := exec.Command("kubectl", "delete", "breakglasses", "--all", "-n", "firedoor-system", "--ignore-not-found=true")
 	if _, err := Run(cmd); err != nil {
 		warnError(fmt.Errorf("failed to clean up test breakglass resources: %w", err))
 	}
+}
+
+// WaitForCRD waits for the breakglass CRD to be available
+func WaitForCRD() error {
+	By("waiting for breakglass CRD to be available")
+	cmd := exec.Command("kubectl", "get", "crd", "breakglasses.access.cloudnimbus.io", "--ignore-not-found=true")
+	_, err := Run(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to check CRD availability: %w", err)
+	}
+
+	// Wait a bit more to ensure the CRD is fully established
+	time.Sleep(5 * time.Second)
+	return nil
 }

@@ -20,13 +20,14 @@ import "time"
 
 // Defaults holds all default configuration values
 type Defaults struct {
-	OTel       OTelDefaults
-	Manager    ManagerDefaults
-	Metrics    MetricsDefaults
-	Health     HealthDefaults
-	HTTP       HTTPDefaults
-	Controller ControllerDefaults
-	Server     ServerDefaults
+	OTel         OTelDefaults
+	Manager      ManagerDefaults
+	Metrics      MetricsDefaults
+	Health       HealthDefaults
+	HTTP         HTTPDefaults
+	Controller   ControllerDefaults
+	Server       ServerDefaults
+	Alertmanager AlertmanagerDefaults
 }
 
 // OTelDefaults holds OpenTelemetry default values
@@ -74,13 +75,19 @@ type ServerDefaults struct {
 	LeaderElect            bool
 }
 
+// AlertmanagerDefaults holds Alertmanager default values
+type AlertmanagerDefaults struct {
+	Enabled  bool
+	Endpoint string
+}
+
 // NewDefaults returns the default configuration values
 func NewDefaults() *Defaults {
 	return &Defaults{
 		OTel: OTelDefaults{
 			Enabled:  false,
 			Exporter: "otlp",
-			Endpoint: "http://localhost:4318/v1/traces",
+			Endpoint: "otel-collector-opentelemetry-collector.telemetry-system.svc.cluster.local:4317",
 			Service:  "firedoor-operator",
 		},
 		Manager: ManagerDefaults{
@@ -107,6 +114,10 @@ func NewDefaults() *Defaults {
 			MetricsBindAddress:     ":8080",
 			HealthProbeBindAddress: ":8081",
 			LeaderElect:            false,
+		},
+		Alertmanager: AlertmanagerDefaults{
+			Enabled:  false,
+			Endpoint: "http://alertmanager.telemetry-system.svc.cluster.local:9093",
 		},
 	}
 }

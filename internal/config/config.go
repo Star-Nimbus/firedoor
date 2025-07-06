@@ -26,13 +26,14 @@ import (
 
 // Config holds all configuration settings for the application
 type Config struct {
-	OTel       OTelConfig       `mapstructure:"otel"`
-	Manager    ManagerConfig    `mapstructure:"manager"`
-	Metrics    MetricsConfig    `mapstructure:"metrics"`
-	Health     HealthConfig     `mapstructure:"health"`
-	HTTP       HTTPConfig       `mapstructure:"http"`
-	Controller ControllerConfig `mapstructure:"controller"`
-	Server     ServerConfig     `mapstructure:"server"`
+	OTel         OTelConfig         `mapstructure:"otel"`
+	Manager      ManagerConfig      `mapstructure:"manager"`
+	Metrics      MetricsConfig      `mapstructure:"metrics"`
+	Health       HealthConfig       `mapstructure:"health"`
+	HTTP         HTTPConfig         `mapstructure:"http"`
+	Controller   ControllerConfig   `mapstructure:"controller"`
+	Server       ServerConfig       `mapstructure:"server"`
+	Alertmanager AlertmanagerConfig `mapstructure:"alertmanager"`
 }
 
 // OTelConfig holds OpenTelemetry configuration settings
@@ -80,6 +81,62 @@ type ServerConfig struct {
 	MetricsBindAddress     string `mapstructure:"metrics_bind_address"`
 	HealthProbeBindAddress string `mapstructure:"health_probe_bind_address"`
 	LeaderElect            bool   `mapstructure:"leader_elect"`
+}
+
+// AlertmanagerConfig holds Alertmanager configuration
+type AlertmanagerConfig struct {
+	// Enabled determines if Alertmanager integration is active
+	Enabled bool `mapstructure:"enabled"`
+
+	// URL is the Alertmanager API endpoint
+	URL string `mapstructure:"url"`
+
+	// Timeout for Alertmanager API requests
+	Timeout time.Duration `mapstructure:"timeout"`
+
+	// BasicAuth configuration
+	BasicAuth BasicAuthConfig `mapstructure:"basic_auth"`
+
+	// TLS configuration
+	TLS TLSConfig `mapstructure:"tls"`
+
+	// Alert configuration
+	Alert AlertConfig `mapstructure:"alert"`
+}
+
+// BasicAuthConfig holds basic authentication configuration
+type BasicAuthConfig struct {
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+}
+
+// TLSConfig holds TLS configuration
+type TLSConfig struct {
+	InsecureSkipVerify bool   `mapstructure:"insecure_skip_verify"`
+	CAFile             string `mapstructure:"ca_file"`
+	CertFile           string `mapstructure:"cert_file"`
+	KeyFile            string `mapstructure:"key_file"`
+}
+
+// AlertConfig holds alert-specific configuration
+type AlertConfig struct {
+	// Labels to add to all alerts
+	Labels map[string]string `mapstructure:"labels"`
+
+	// Annotations to add to all alerts
+	Annotations map[string]string `mapstructure:"annotations"`
+
+	// Alert name template
+	AlertName string `mapstructure:"alert_name"`
+
+	// Severity level for breakglass alerts
+	Severity string `mapstructure:"severity"`
+
+	// Summary template for alerts
+	Summary string `mapstructure:"summary"`
+
+	// Description template for alerts
+	Description string `mapstructure:"description"`
 }
 
 // Load reads configuration from various sources using viper
@@ -158,6 +215,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.metrics_bind_address", defaults.Server.MetricsBindAddress)
 	v.SetDefault("server.health_probe_bind_address", defaults.Server.HealthProbeBindAddress)
 	v.SetDefault("server.leader_elect", defaults.Server.LeaderElect)
+
+	// Alertmanager defaults
+	v.SetDefault("alertmanager.enabled", defaults.Alertmanager.Enabled)
+	v.SetDefault("alertmanager.url", defaults.Alertmanager.Endpoint)
+	v.SetDefault("alertmanager.timeout", 30*time.Second)
+	v.SetDefault("alertmanager.alert.alert_name", "BreakglassActive")
+	v.SetDefault("alertmanager.alert.severity", "warning")
+	v.SetDefault("alertmanager.alert.summary", "Breakglass access is active")
+	v.SetDefault("alertmanager.alert.description", "A breakglass access request is currently active")
 }
 
 // Validate checks that all configuration values are valid
@@ -220,6 +286,23 @@ func NewDefaultConfig() *Config {
 			MetricsBindAddress:     defaults.Server.MetricsBindAddress,
 			HealthProbeBindAddress: defaults.Server.HealthProbeBindAddress,
 			LeaderElect:            defaults.Server.LeaderElect,
+		},
+		Alertmanager: AlertmanagerConfig{
+			Enabled:   defaults.Alertmanager.Enabled,
+			URL:       defaults.Alertmanager.Endpoint,
+			Timeout:   30 * time.Second,
+			BasicAuth: BasicAuthConfig{},
+			TLS: TLSConfig{
+				InsecureSkipVerify: false,
+			},
+			Alert: AlertConfig{
+				Labels:      make(map[string]string),
+				Annotations: make(map[string]string),
+				AlertName:   "BreakglassActive",
+				Severity:    "warning",
+				Summary:     "Breakglass access is active",
+				Description: "A breakglass access request is currently active",
+			},
 		},
 	}
 }

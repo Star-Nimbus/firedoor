@@ -1,0 +1,46 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: emergency-access
+  namespace: default
+spec:
+  # Subjects define who gets access
+  subjects:
+    - kind: User
+      name: "alice@example.com"
+    - kind: Group
+      name: "devops-team"
+  
+  # Inline RBAC rules (optional - can use clusterRoles instead)
+  accessPolicy:
+    rules:
+      - actions: ["get", "list", "patch"]
+        apiGroups: [""]
+        resources: ["pods", "services"]
+        namespaces: ["production", "staging"]
+        resourceNames: ["critical-app"]
+      - actions: ["get", "list"]
+        apiGroups: ["apps"]
+        resources: ["deployments"]
+        namespaces: ["production"]
+  
+  # Or use existing ClusterRoles (alternative to accessPolicy)
+  # clusterRoles:
+  #   - "cluster-admin"
+  #   - "namespace-admin"
+  
+  # Approval workflow
+  approvalRequired: true
+  
+  # Duration of access
+  duration: "2h"
+  
+  # Required justification
+  justification: "Production outage troubleshooting - need access to restart pods and check deployment status"
+  
+  # Optional ticket reference
+  ticketID: "INC-12345"
+  
+  # Optional recurring access
+  # recurring: true
+  # recurrenceSchedule: "0 9 * * 1-5"  # Weekdays at 9 AM 

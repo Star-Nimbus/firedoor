@@ -5,16 +5,20 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
+	"github.com/cloud-nimbus/firedoor/internal/alerting"
 	"github.com/cloud-nimbus/firedoor/internal/conditions"
 	"github.com/cloud-nimbus/firedoor/internal/constants"
 	"github.com/cloud-nimbus/firedoor/internal/telemetry"
@@ -28,16 +32,66 @@ type BreakglassOperator interface {
 
 // breakglassOperator implements BreakglassOperator.
 type breakglassOperator struct {
-	client   client.Client
-	recorder record.EventRecorder
+	client       client.Client
+	recorder     record.EventRecorder
+	alertService *alerting.AlertmanagerService
 }
 
 // NewBreakglassOperator creates a new breakglass operator.
-func NewBreakglassOperator(client client.Client, recorder record.EventRecorder) BreakglassOperator {
+func NewBreakglassOperator(client client.Client, recorder record.EventRecorder, alertService *alerting.AlertmanagerService) BreakglassOperator {
 	return &breakglassOperator{
-		client:   client,
-		recorder: recorder,
+		client:       client,
+		recorder:     recorder,
+		alertService: alertService,
 	}
+}
+
+// errNoRequeue is a sentinel error type for permanent failures that should not be requeued
+var errNoRequeue = fmt.Errorf("permanent failure - do not requeue")
+
+// upsert creates or updates an object using controllerutil.CreateOrUpdate
+func (o *breakglassOperator) upsert(ctx context.Context, obj client.Object, mutate func() error) error {
+	_, err := controllerutil.CreateOrUpdate(ctx, o.client, obj, mutate)
+	return err
+}
+
+// deduplicateSubjects removes duplicate subjects from the list
+func deduplicateSubjects(subjects []rbacv1.Subject) []rbacv1.Subject {
+	sbKey := func(s rbacv1.Subject) string {
+		return s.Kind + "/" + s.Name + "/" + s.Namespace
+	}
+	set := make(map[string]rbacv1.Subject)
+	for _, s := range subjects {
+		set[sbKey(s)] = s
+	}
+
+	unique := make([]rbacv1.Subject, 0, len(set))
+	for _, s := range set {
+		unique = append(unique, s)
+	}
+	return unique
+}
+
+// safeName creates a safe resource name that won't exceed DNS-1123 limits
+func safeName(parts ...string) string {
+	// Simple implementation - in production, use k8s.io/apimachinery/pkg/util/validation/field
+	name := "breakglass"
+	for _, part := range parts {
+		if len(name)+len(part)+1 <= 253 {
+			name += "-" + part
+		} else {
+			break
+		}
+	}
+	return name
+}
+
+// patchStatus updates the status with retry logic for conflicts
+func (o *breakglassOperator) patchStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, mutate func()) error {
+	return retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		mutate()
+		return o.client.Status().Update(ctx, bg)
+	})
 }
 
 // GrantAccess grants access to a breakglass resource.
@@ -45,155 +99,425 @@ func (o *breakglassOperator) GrantAccess(ctx context.Context, bg *accessv1alpha1
 	ctx, span := telemetry.RecordGrantAccessStart(ctx, bg)
 	defer span.End()
 
-	subject, err := o.resolveSubjectAndHandleError(ctx, bg)
+	// Request-scoped logger - capture once and thread it
+	lg := log.FromContext(ctx).WithValues("breakglass", bg.Name)
+	ctx = log.IntoContext(ctx, lg)
+
+	subjects, err := o.resolveSubjectsAndHandleError(ctx, bg)
 	if err != nil {
-		return ctrl.Result{}, nil
-	}
-
-	telemetry.RecordSubjectResolution(ctx, bg, subject.Name)
-
-	if err := o.createRoleBinding(ctx, bg, subject); err != nil {
+		if err == errNoRequeue {
+			// Permanent failure, status has been set to Denied, do not requeue
+			return ctrl.Result{}, nil
+		}
+		// Handle forbidden/invalid errors as permanent
+		if apierrors.IsForbidden(err) || apierrors.IsInvalid(err) {
+			lg.Error(err, "Permanent failure - do not requeue")
+			return ctrl.Result{}, nil
+		}
+		// Other errors should be requeued
 		return ctrl.Result{}, err
 	}
 
-	return o.completeGrantAccess(ctx, bg, subject)
+	// Deduplicate subjects
+	subjects = deduplicateSubjects(subjects)
+
+	// Create RBAC resources based on the breakglass spec
+	if err := o.createRBACResources(ctx, bg, subjects); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return o.completeGrantAccess(ctx, bg, subjects)
 }
 
-// resolveSubjectAndHandleError resolves the subject and handles validation errors
-func (o *breakglassOperator) resolveSubjectAndHandleError(ctx context.Context, bg *accessv1alpha1.Breakglass) (*rbacv1.Subject, error) {
-	subject, err := resolveSubject(bg)
+// resolveSubjectsAndHandleError resolves the subjects and handles validation errors
+// If validation fails, it sets status to Denied, emits an event, and returns errNoRequeue.
+func (o *breakglassOperator) resolveSubjectsAndHandleError(ctx context.Context, bg *accessv1alpha1.Breakglass) ([]rbacv1.Subject, error) {
+	subjects, err := resolveSubjects(ctx, bg)
 	if err != nil {
 		logger := log.FromContext(ctx)
-		logger.Info("Breakglass missing user or group; skipping grant")
+		logger.Info("Breakglass missing subjects; denying access", "error", err)
 
 		telemetry.RecordGrantAccessValidationFailure(bg)
 		o.setDeniedStatus(ctx, bg, err)
-		o.emitEvent(bg, corev1.EventTypeWarning, "InvalidRequest", "Missing user or group")
+		o.emitEvent(bg, corev1.EventTypeWarning, "InvalidRequest", "Missing subjects")
 
-		return nil, err
+		// Return errNoRequeue to indicate this is a permanent failure and should not be requeued
+		return nil, errNoRequeue
 	}
-	return subject, nil
+	return subjects, nil
+}
+
+// createRBACResources creates the necessary RBAC resources (Roles/ClusterRoles and RoleBindings/ClusterRoleBindings)
+func (o *breakglassOperator) createRBACResources(ctx context.Context, bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject) error {
+	// Handle ClusterRoles if specified
+	if len(bg.Spec.ClusterRoles) > 0 {
+		return o.createClusterRoleBindings(ctx, bg, subjects)
+	}
+
+	// Handle AccessPolicy if specified
+	if bg.Spec.AccessPolicy != nil && len(bg.Spec.AccessPolicy.Rules) > 0 {
+		return o.createCustomRBACResources(ctx, bg, subjects)
+	}
+
+	return fmt.Errorf("neither clusterRoles nor accessPolicy specified")
+}
+
+// ownerReferenceForBreakglass returns an OwnerReference for the given Breakglass resource.
+func ownerReferenceForBreakglass(bg *accessv1alpha1.Breakglass, blockOwnerDeletion bool) metav1.OwnerReference {
+	controller := true
+	return metav1.OwnerReference{
+		APIVersion:         bg.APIVersion,
+		Kind:               bg.Kind,
+		Name:               bg.Name,
+		UID:                bg.UID,
+		Controller:         &controller,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+	}
+}
+
+// createClusterRoleBindings creates ClusterRoleBindings for existing ClusterRoles
+func (o *breakglassOperator) createClusterRoleBindings(ctx context.Context, bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject) error {
+	for _, clusterRoleName := range bg.Spec.ClusterRoles {
+		// If AccessPolicy is present, create a custom ClusterRole with the given name and rules
+		if bg.Spec.AccessPolicy != nil && len(bg.Spec.AccessPolicy.Rules) > 0 {
+			clusterRole := &rbacv1.ClusterRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: clusterRoleName,
+					Labels: map[string]string{
+						"breakglass": bg.Name,
+						"managed-by": "firedoor",
+					},
+					OwnerReferences: []metav1.OwnerReference{ownerReferenceForBreakglass(bg, false)}, // Don't block deletion for cluster resources
+				},
+			}
+
+			if err := o.upsert(ctx, clusterRole, func() error {
+				clusterRole.Rules = o.convertAccessRulesToPolicyRules(bg.Spec.AccessPolicy.Rules)
+				return nil
+			}); err != nil {
+				telemetry.RecordGrantAccessFailure(bg, "cluster_role_upsert_failed")
+				return fmt.Errorf("failed to upsert ClusterRole: %w", err)
+			}
+		}
+
+		clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: safeName(bg.Name, clusterRoleName),
+				Labels: map[string]string{
+					"breakglass": bg.Name,
+					"managed-by": "firedoor",
+				},
+				OwnerReferences: []metav1.OwnerReference{ownerReferenceForBreakglass(bg, false)}, // Don't block deletion for cluster resources
+			},
+			Subjects: subjects,
+			RoleRef: rbacv1.RoleRef{
+				Kind:     "ClusterRole",
+				Name:     clusterRoleName,
+				APIGroup: rbacv1.GroupName,
+			},
+		}
+
+		if err := o.upsert(ctx, clusterRoleBinding, func() error {
+			clusterRoleBinding.Subjects = subjects
+			return nil
+		}); err != nil {
+			telemetry.RecordGrantAccessFailure(bg, "cluster_role_binding_upsert_failed")
+			return fmt.Errorf("failed to upsert ClusterRoleBinding: %w", err)
+		}
+
+		// Record role binding operation success
+		telemetry.RecordOperation(telemetry.OpCreate, telemetry.ResultSuccess, telemetry.ComponentController, string(telemetry.RoleTypeClusterRole), fmt.Sprintf("cluster-wide-%s", clusterRoleName))
+	}
+
+	return nil
+}
+
+// createCustomRBACResources creates custom Roles/ClusterRoles and RoleBindings/ClusterRoleBindings based on AccessPolicy
+func (o *breakglassOperator) createCustomRBACResources(ctx context.Context, bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject) error {
+	// Determine if we need cluster-wide or namespace-specific resources
+	isClusterWide := o.isClusterWideAccess(bg.Spec.AccessPolicy.Rules)
+
+	if isClusterWide {
+		return o.createClusterWideRBAC(ctx, bg, subjects)
+	} else {
+		return o.createNamespaceSpecificRBAC(ctx, bg, subjects)
+	}
+}
+
+// isClusterWideAccess determines if the access policy requires cluster-wide permissions
+func (o *breakglassOperator) isClusterWideAccess(rules []accessv1alpha1.AccessRule) bool {
+	for _, rule := range rules {
+		// If any rule has no namespaces specified, it's cluster-wide
+		if len(rule.Namespaces) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// createClusterWideRBAC creates ClusterRole and ClusterRoleBinding
+func (o *breakglassOperator) createClusterWideRBAC(ctx context.Context, bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject) error {
+	// Create ClusterRole
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: safeName(bg.Name),
+			Labels: map[string]string{
+				"breakglass": bg.Name,
+				"managed-by": "firedoor",
+			},
+			OwnerReferences: []metav1.OwnerReference{ownerReferenceForBreakglass(bg, false)}, // Don't block deletion for cluster resources
+		},
+	}
+
+	if err := o.upsert(ctx, clusterRole, func() error {
+		clusterRole.Rules = o.convertAccessRulesToPolicyRules(bg.Spec.AccessPolicy.Rules)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to upsert ClusterRole: %w", err)
+	}
+
+	// Create ClusterRoleBinding
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: safeName(bg.Name),
+			Labels: map[string]string{
+				"breakglass": bg.Name,
+				"managed-by": "firedoor",
+			},
+			OwnerReferences: []metav1.OwnerReference{ownerReferenceForBreakglass(bg, false)}, // Don't block deletion for cluster resources
+		},
+		Subjects: subjects,
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "ClusterRole",
+			Name:     clusterRole.Name,
+			APIGroup: rbacv1.GroupName,
+		},
+	}
+
+	if err := o.upsert(ctx, clusterRoleBinding, func() error {
+		clusterRoleBinding.Subjects = subjects
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to upsert ClusterRoleBinding: %w", err)
+	}
+
+	// Record role binding operation success
+	telemetry.RecordOperation(telemetry.OpCreate, telemetry.ResultSuccess, telemetry.ComponentController, string(telemetry.RoleTypeClusterRole), "cluster-wide")
+
+	return nil
+}
+
+// createNamespaceSpecificRBAC creates Role and RoleBinding for each namespace
+// Uses child spans per namespace for granular timing and error tracking
+func (o *breakglassOperator) createNamespaceSpecificRBAC(ctx context.Context, bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject) error {
+	// Group rules by namespace
+	namespaceRules := make(map[string][]rbacv1.PolicyRule)
+
+	for _, rule := range bg.Spec.AccessPolicy.Rules {
+		// Validate that namespace-specific rules have namespaces
+		if len(rule.Namespaces) == 0 {
+			return fmt.Errorf("rule without namespace in namespace-specific block")
+		}
+
+		for _, namespace := range rule.Namespaces {
+			policyRule := o.convertAccessRuleToPolicyRule(rule)
+			namespaceRules[namespace] = append(namespaceRules[namespace], policyRule)
+		}
+	}
+
+	// Create Role and RoleBinding for each namespace with child spans
+	for namespace, rules := range namespaceRules {
+		err := telemetry.RecordNamespaceOperation(ctx, "CreateNamespaceRBAC", namespace, func() error {
+			// Create Role
+			role := &rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      safeName(bg.Name),
+					Namespace: namespace,
+					Labels: map[string]string{
+						"breakglass": bg.Name,
+						"managed-by": "firedoor",
+					},
+				},
+			}
+
+			if err := o.upsert(ctx, role, func() error {
+				role.Rules = rules
+				// Set controller reference for proper finalizer handling
+				if err := controllerutil.SetControllerReference(bg, role, o.client.Scheme()); err != nil {
+					return fmt.Errorf("failed to set controller reference for Role: %w", err)
+				}
+				return nil
+			}); err != nil {
+				return fmt.Errorf("failed to upsert Role in namespace %s: %w", namespace, err)
+			}
+
+			// Create RoleBinding
+			roleBinding := &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      safeName(bg.Name),
+					Namespace: namespace,
+					Labels: map[string]string{
+						"breakglass": bg.Name,
+						"managed-by": "firedoor",
+					},
+				},
+				Subjects: subjects,
+				RoleRef: rbacv1.RoleRef{
+					Kind:     "Role",
+					Name:     role.Name,
+					APIGroup: rbacv1.GroupName,
+				},
+			}
+
+			if err := o.upsert(ctx, roleBinding, func() error {
+				roleBinding.Subjects = subjects
+				// Set controller reference for proper finalizer handling
+				if err := controllerutil.SetControllerReference(bg, roleBinding, o.client.Scheme()); err != nil {
+					return fmt.Errorf("failed to set controller reference for RoleBinding: %w", err)
+				}
+				return nil
+			}); err != nil {
+				return fmt.Errorf("failed to upsert RoleBinding in namespace %s: %w", namespace, err)
+			}
+
+			// Record role binding operation success
+			telemetry.RecordOperation(telemetry.OpCreate, telemetry.ResultSuccess, telemetry.ComponentController, string(telemetry.RoleTypeRole), fmt.Sprintf("namespace-%s", namespace))
+
+			return nil
+		})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// convertAccessRulesToPolicyRules converts AccessRules to RBAC PolicyRules
+func (o *breakglassOperator) convertAccessRulesToPolicyRules(accessRules []accessv1alpha1.AccessRule) []rbacv1.PolicyRule {
+	var policyRules []rbacv1.PolicyRule
+
+	for _, accessRule := range accessRules {
+		policyRule := o.convertAccessRuleToPolicyRule(accessRule)
+		policyRules = append(policyRules, policyRule)
+	}
+
+	return policyRules
+}
+
+// convertAccessRuleToPolicyRule converts a single AccessRule to RBAC PolicyRule
+func (o *breakglassOperator) convertAccessRuleToPolicyRule(accessRule accessv1alpha1.AccessRule) rbacv1.PolicyRule {
+	// Convert Actions to Verbs
+	var verbs []string
+	for _, action := range accessRule.Actions {
+		verbs = append(verbs, string(action))
+	}
+
+	return rbacv1.PolicyRule{
+		Verbs:         verbs,
+		APIGroups:     accessRule.APIGroups,
+		Resources:     accessRule.Resources,
+		ResourceNames: accessRule.ResourceNames,
+	}
 }
 
 // setDeniedStatus sets the denied status and conditions
 func (o *breakglassOperator) setDeniedStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, err error) {
-	phase := accessv1alpha1.PhaseDenied
-	bg.Status.Phase = &phase
-	bg.Status.ApprovedBy = constants.ControllerIdentity
+	// Collapse status updates into one patch
+	if err := o.patchStatus(ctx, bg, func() {
+		bg.Status.Phase = accessv1alpha1.PhaseDenied
+		bg.Status.ApprovedBy = constants.ControllerIdentity
 
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Denied.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.InvalidRequest.String(),
-		Message:            fmt.Sprintf("Missing user or group: %v", err),
-	})
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Approved.String(),
-		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.InvalidRequest.String(),
-		Message:            conditions.RequestDeniedDueToMissingUserOrGroup.String(),
-	})
-
-	if err := o.client.Status().Update(ctx, bg); err != nil {
+		bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
+			Type:               conditions.Denied.String(),
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+			Reason:             conditions.InvalidRequest.String(),
+			Message:            fmt.Sprintf("Missing subjects: %v", err),
+		})
+		bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
+			Type:               conditions.Approved.String(),
+			Status:             metav1.ConditionFalse,
+			LastTransitionTime: metav1.Now(),
+			Reason:             conditions.InvalidRequest.String(),
+			Message:            conditions.RequestDeniedDueToMissingUserOrGroup.String(),
+		})
+	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
 	}
 }
 
-// createRoleBinding creates the role binding for the breakglass
-func (o *breakglassOperator) createRoleBinding(ctx context.Context, bg *accessv1alpha1.Breakglass, subject *rbacv1.Subject) error {
-	roleBinding := o.buildRoleBinding(bg, subject)
-
-	if err := o.client.Create(ctx, roleBinding); err != nil && !apierrors.IsAlreadyExists(err) {
-		telemetry.RecordGrantAccessFailure(bg, "role_binding_failed")
-		o.setRoleBindingFailureStatus(ctx, bg, err)
-		return err
-	}
-
-	telemetry.RecordRoleBindingOperation(
-		telemetry.LabelResultSuccess,
-		telemetry.LabelOperationCreate,
-		bg.Spec.Role,
-		bg.Spec.Namespace,
-	)
-	return nil
-}
-
-// buildRoleBinding builds the role binding object
-func (o *breakglassOperator) buildRoleBinding(bg *accessv1alpha1.Breakglass, subject *rbacv1.Subject) *rbacv1.RoleBinding {
-	return &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("breakglass-%s", bg.Name),
-			Namespace: bg.Spec.Namespace,
-		},
-		Subjects: []rbacv1.Subject{*subject},
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			Name:     bg.Spec.Role,
-			APIGroup: rbacv1.GroupName,
-		},
-	}
-}
-
-// setRoleBindingFailureStatus sets the status for role binding failures
-func (o *breakglassOperator) setRoleBindingFailureStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, err error) {
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Denied.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.RoleBindingFailed.String(),
-		Message:            fmt.Sprintf("Failed to create RoleBinding: %v", err),
-	})
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Approved.String(),
-		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.RoleBindingFailed.String(),
-		Message:            conditions.AccessDeniedDueToRoleBindingFailure.String(),
-	})
-
-	if updateErr := o.client.Status().Update(ctx, bg); updateErr != nil {
-		telemetry.RecordStatusUpdateError("update")
-	}
-}
-
-// completeGrantAccess completes the grant access operation
-func (o *breakglassOperator) completeGrantAccess(ctx context.Context, bg *accessv1alpha1.Breakglass, subject *rbacv1.Subject) (ctrl.Result, error) {
+// completeGrantAccess completes the grant access process
+func (o *breakglassOperator) completeGrantAccess(ctx context.Context, bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject) (ctrl.Result, error) {
 	now := metav1.Now()
-	expiry := metav1.NewTime(now.Time.Add(time.Duration(bg.Spec.DurationMinutes) * time.Minute))
-	phase := accessv1alpha1.PhaseActive
 
-	telemetry.RecordGrantAccessSuccess(bg, subject.Name)
+	// Calculate expiry time
+	var expiry metav1.Time
+	if bg.Spec.Duration != nil {
+		expiry = metav1.NewTime(now.Time.Add(bg.Spec.Duration.Duration))
+	} else {
+		// Default to 1 hour if no duration specified
+		expiry = metav1.NewTime(now.Time.Add(1 * time.Hour))
+	}
 
-	o.updateGrantedStatus(bg, &phase, &now, &expiry)
-	o.setGrantedConditions(bg, subject, expiry)
+	// Set approval info if not already set
+	if bg.Status.ApprovedBy == "" {
+		bg.Status.ApprovedBy = constants.ControllerIdentity
+		bg.Status.ApprovedAt = &now
+	}
 
-	if err := o.client.Status().Update(ctx, bg); err != nil {
+	telemetry.RecordGrantAccessSuccess(bg, subjects[0].Name)
+
+	// Collapse status updates into one patch
+	if err := o.patchStatus(ctx, bg, func() {
+		o.updateGrantedStatus(bg, accessv1alpha1.PhaseActive, &now, &expiry)
+		o.setGrantedConditions(bg, subjects, expiry)
+	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
 		return ctrl.Result{}, err
 	}
 
+	// Send alert for active breakglass
+	if o.alertService != nil {
+		if err := o.alertService.SendBreakglassActiveAlert(ctx, bg); err != nil {
+			log := log.FromContext(ctx)
+			log.Error(err, "Failed to send breakglass active alert")
+			// Don't fail the operation if alert sending fails
+		} else {
+			// Add span event for successful alert
+			if span := trace.SpanFromContext(ctx); span != nil {
+				span.AddEvent("alert.sent")
+			}
+		}
+	}
+
 	log := log.FromContext(ctx)
-	log.Info("Granted breakglass access", "subject", subject.Name, "expiresAt", expiry)
-	return ctrl.Result{RequeueAfter: time.Until(expiry.Time)}, nil
+	log.Info("Granted breakglass access", "subjects", len(subjects), "expiresAt", expiry)
+
+	// Avoid hot loops on negative time.Until
+	d := time.Until(expiry.Time)
+	if d < 5*time.Second {
+		d = 5 * time.Second
+	}
+	return ctrl.Result{RequeueAfter: d}, nil
 }
 
 // updateGrantedStatus updates the status with granted information
-func (o *breakglassOperator) updateGrantedStatus(bg *accessv1alpha1.Breakglass, phase *accessv1alpha1.BreakglassPhase, now, expiry *metav1.Time) {
+func (o *breakglassOperator) updateGrantedStatus(bg *accessv1alpha1.Breakglass, phase accessv1alpha1.BreakglassPhase, now, expiry *metav1.Time) {
 	bg.Status.Phase = phase
 	bg.Status.GrantedAt = now
 	bg.Status.ExpiresAt = expiry
 }
 
 // setGrantedConditions sets the conditions for granted access
-func (o *breakglassOperator) setGrantedConditions(bg *accessv1alpha1.Breakglass, subject *rbacv1.Subject, expiry metav1.Time) {
+func (o *breakglassOperator) setGrantedConditions(bg *accessv1alpha1.Breakglass, subjects []rbacv1.Subject, expiry metav1.Time) {
 	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
 		Type:               conditions.Approved.String(),
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             conditions.AccessGranted.String(),
-		Message:            fmt.Sprintf("Breakglass access granted to %s until %s", subject.Name, expiry.Format(time.RFC3339)),
+		Message:            fmt.Sprintf("Breakglass access granted to %d subjects until %s", len(subjects), expiry.Format(time.RFC3339)),
 	})
 	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
 		Type:               conditions.Active.String(),
@@ -216,62 +540,153 @@ func (o *breakglassOperator) RevokeAccess(ctx context.Context, bg *accessv1alpha
 	ctx, span := telemetry.RecordRevokeAccessStart(ctx, bg)
 	defer span.End()
 
-	if err := o.deleteRoleBinding(ctx, bg); err != nil {
+	// Request-scoped logger - capture once and thread it
+	lg := log.FromContext(ctx).WithValues("breakglass", bg.Name)
+	ctx = log.IntoContext(ctx, lg)
+
+	if err := o.deleteRBACResources(ctx, bg); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return o.completeRevokeAccess(ctx, bg)
 }
 
-// deleteRoleBinding deletes the role binding
-func (o *breakglassOperator) deleteRoleBinding(ctx context.Context, bg *accessv1alpha1.Breakglass) error {
-	roleBinding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("breakglass-%s", bg.Name),
-			Namespace: bg.Spec.Namespace,
-		},
+// deleteRBACResources deletes all RBAC resources created for this breakglass
+func (o *breakglassOperator) deleteRBACResources(ctx context.Context, bg *accessv1alpha1.Breakglass) error {
+	// Delete ClusterRoleBindings for ClusterRoles
+	if len(bg.Spec.ClusterRoles) > 0 {
+		for _, clusterRoleName := range bg.Spec.ClusterRoles {
+			clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+			clusterRoleBindingName := safeName(bg.Name, clusterRoleName)
+
+			if err := o.client.Get(ctx, client.ObjectKey{Name: clusterRoleBindingName}, clusterRoleBinding); err == nil {
+				if err := o.client.Delete(ctx, clusterRoleBinding); err != nil {
+					return fmt.Errorf("failed to delete ClusterRoleBinding %s: %w", clusterRoleBindingName, err)
+				}
+			}
+		}
+		return nil
 	}
 
-	if err := o.client.Delete(ctx, roleBinding); err != nil && !apierrors.IsNotFound(err) {
-		telemetry.RecordRevokeAccessFailure(bg)
-		o.setRevokeFailureStatus(ctx, bg, err)
-		return err
+	// Delete custom RBAC resources
+	if bg.Spec.AccessPolicy != nil && len(bg.Spec.AccessPolicy.Rules) > 0 {
+		isClusterWide := o.isClusterWideAccess(bg.Spec.AccessPolicy.Rules)
+
+		if isClusterWide {
+			return o.deleteClusterWideRBAC(ctx, bg)
+		} else {
+			return o.deleteNamespaceSpecificRBAC(ctx, bg)
+		}
 	}
 
-	telemetry.RecordRevokeAccessSuccess(bg)
 	return nil
 }
 
-// setRevokeFailureStatus sets the status for revoke failures
-func (o *breakglassOperator) setRevokeFailureStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, err error) {
-	bg.Status.Conditions = append(bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Expired.String(),
-		Status:             metav1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             conditions.RevokeFailed.String(),
-		Message:            fmt.Sprintf("Failed to delete RoleBinding: %v", err),
-	})
+// deleteClusterWideRBAC deletes ClusterRole and ClusterRoleBinding
+func (o *breakglassOperator) deleteClusterWideRBAC(ctx context.Context, bg *accessv1alpha1.Breakglass) error {
+	// Delete ClusterRoleBinding
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+	clusterRoleBindingName := safeName(bg.Name)
 
-	if updateErr := o.client.Status().Update(ctx, bg); updateErr != nil {
-		telemetry.RecordStatusUpdateError("update")
+	if err := o.client.Get(ctx, client.ObjectKey{Name: clusterRoleBindingName}, clusterRoleBinding); err == nil {
+		if err := o.client.Delete(ctx, clusterRoleBinding); err != nil {
+			return fmt.Errorf("failed to delete ClusterRoleBinding: %w", err)
+		}
 	}
+
+	// Delete ClusterRole
+	clusterRole := &rbacv1.ClusterRole{}
+	clusterRoleName := safeName(bg.Name)
+
+	if err := o.client.Get(ctx, client.ObjectKey{Name: clusterRoleName}, clusterRole); err == nil {
+		if err := o.client.Delete(ctx, clusterRole); err != nil {
+			return fmt.Errorf("failed to delete ClusterRole: %w", err)
+		}
+	}
+
+	return nil
 }
 
-// completeRevokeAccess completes the revoke access operation
+// deleteNamespaceSpecificRBAC deletes Role and RoleBinding for each namespace
+// Uses child spans per namespace for granular timing and error tracking
+func (o *breakglassOperator) deleteNamespaceSpecificRBAC(ctx context.Context, bg *accessv1alpha1.Breakglass) error {
+	// Get all namespaces from the rules
+	namespaces := make(map[string]bool)
+	for _, rule := range bg.Spec.AccessPolicy.Rules {
+		for _, namespace := range rule.Namespaces {
+			namespaces[namespace] = true
+		}
+	}
+
+	// Delete RoleBinding and Role for each namespace with child spans
+	for namespace := range namespaces {
+		err := telemetry.RecordNamespaceOperation(ctx, "DeleteNamespaceRBAC", namespace, func() error {
+			// Delete RoleBinding
+			roleBinding := &rbacv1.RoleBinding{}
+			roleBindingName := safeName(bg.Name)
+
+			if err := o.client.Get(ctx, client.ObjectKey{Name: roleBindingName, Namespace: namespace}, roleBinding); err == nil {
+				if err := o.client.Delete(ctx, roleBinding); err != nil {
+					return fmt.Errorf("failed to delete RoleBinding in namespace %s: %w", namespace, err)
+				}
+			}
+
+			// Delete Role
+			role := &rbacv1.Role{}
+			roleName := safeName(bg.Name)
+
+			if err := o.client.Get(ctx, client.ObjectKey{Name: roleName, Namespace: namespace}, role); err == nil {
+				if err := o.client.Delete(ctx, role); err != nil {
+					return fmt.Errorf("failed to delete Role in namespace %s: %w", namespace, err)
+				}
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// completeRevokeAccess completes the revoke access process
 func (o *breakglassOperator) completeRevokeAccess(ctx context.Context, bg *accessv1alpha1.Breakglass) (ctrl.Result, error) {
-	phase := accessv1alpha1.PhaseExpired
-	bg.Status.Phase = &phase
+	telemetry.RecordRevokeAccessSuccess(bg)
 
-	o.setRevokedConditions(bg)
-
-	if err := o.client.Status().Update(ctx, bg); err != nil {
+	// Collapse status updates into one patch
+	if err := o.patchStatus(ctx, bg, func() {
+		o.updateRevokedStatus(bg)
+		o.setRevokedConditions(bg)
+	}); err != nil {
 		telemetry.RecordStatusUpdateError("update")
 		return ctrl.Result{}, err
 	}
 
-	logger := log.FromContext(ctx)
-	logger.Info("Revoked breakglass access")
+	// Send alert for expired breakglass
+	if o.alertService != nil {
+		if err := o.alertService.SendBreakglassExpiredAlert(ctx, bg); err != nil {
+			log := log.FromContext(ctx)
+			log.Error(err, "Failed to send breakglass expired alert")
+			// Don't fail the operation if alert sending fails
+		} else {
+			// Add span event for successful alert
+			if span := trace.SpanFromContext(ctx); span != nil {
+				span.AddEvent("alert.sent")
+			}
+		}
+	}
+
+	log := log.FromContext(ctx)
+	log.Info("Revoked breakglass access")
 	return ctrl.Result{}, nil
+}
+
+// updateRevokedStatus updates the status for revoked access
+func (o *breakglassOperator) updateRevokedStatus(bg *accessv1alpha1.Breakglass) {
+	bg.Status.Phase = accessv1alpha1.PhaseExpired
 }
 
 // setRevokedConditions sets the conditions for revoked access
@@ -292,7 +707,7 @@ func (o *breakglassOperator) setRevokedConditions(bg *accessv1alpha1.Breakglass)
 	})
 }
 
-// emitEvent emits an event for the breakglass
+// emitEvent emits a Kubernetes event
 func (o *breakglassOperator) emitEvent(bg *accessv1alpha1.Breakglass, eventType, reason, message string) {
 	o.recorder.Event(bg, eventType, reason, message)
 }

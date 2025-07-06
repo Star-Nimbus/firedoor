@@ -12,4 +12,10 @@ const (
 	BreakglassAccessExpiredAndRevoked Message = "Breakglass access expired and revoked"
 	// AccessIsNoLongerActive indicates the access is no longer active
 	AccessIsNoLongerActive Message = "Access is no longer active"
+	// RecurringAccessPendingNextActivation indicates recurring access is pending next activation
+	RecurringAccessPendingNextActivation Message = "Recurring access is pending next activation"
+	// RecurringAccessCurrentlyActive indicates recurring access is currently active
+	RecurringAccessCurrentlyActive Message = "Recurring access is currently active"
+	// RecurringAccessScheduledForActivation indicates recurring access has been scheduled for activation
+	RecurringAccessScheduledForActivation Message = "Recurring access has been scheduled for activation"
 )

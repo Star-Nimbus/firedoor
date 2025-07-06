@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/cloud-nimbus/firedoor/internal/config"
+	"github.com/cloud-nimbus/firedoor/internal/errors"
 )
 
 const (
@@ -63,7 +64,7 @@ func NewRootCmd() *cobra.Command {
 			var err error
 			cfg, err = config.LoadWithViper(viper.GetViper())
 			if err != nil {
-				return fmt.Errorf("failed to load configuration: %w", err)
+				return fmt.Errorf("%s: %w", errors.ErrLoadConfig, err)
 			}
 			return nil
 		},

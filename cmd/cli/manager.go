@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"math/rand"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -41,7 +42,9 @@ import (
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 	"github.com/cloud-nimbus/firedoor/internal/config"
+	"github.com/cloud-nimbus/firedoor/internal/constants"
 	"github.com/cloud-nimbus/firedoor/internal/controller"
+	"github.com/cloud-nimbus/firedoor/internal/errors"
 	"github.com/cloud-nimbus/firedoor/internal/telemetry"
 	//+kubebuilder:scaffold:imports
 )
@@ -78,6 +81,9 @@ func newManagerCmd() *cobra.Command {
 }
 
 func runManager(ctx context.Context, cfg *config.Config) error {
+	// Initialize random seed to avoid identical jitter across controller pods
+	rand.Seed(time.Now().UnixNano())
+
 	var metricsAddr string
 	var probeAddr string
 	var enableLeaderElection bool
@@ -98,7 +104,7 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 
 		tp, err := telemetry.SetupOTel(ctx, cfg.OTel.Exporter, cfg.OTel.Endpoint, cfg.OTel.Service)
 		if err != nil {
-			setupLog.Error(err, "Failed to setup OpenTelemetry")
+			setupLog.Error(err, errors.ErrSetupOTel)
 			return err
 		}
 
@@ -109,7 +115,7 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := tp.Shutdown(shutdownCtx); err != nil {
-				setupLog.Error(err, "Failed to shutdown tracer provider")
+				setupLog.Error(err, errors.ErrShutdownOTel)
 			}
 		}()
 	}
@@ -121,7 +127,7 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
 	// - https://github.com/advisories/GHSA-4374-p667-p6c8
 	disableHTTP2 := func(c *tls.Config) {
-		setupLog.Info("disabling http/2")
+		setupLog.Info(errors.ErrDisableHTTP2)
 		c.NextProtos = []string{"http/1.1"}
 	}
 
@@ -133,7 +139,7 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 		TLSOpts: tlsOpts,
 	})
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// Metrics endpoint is enabled in 'kustomize/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
@@ -146,7 +152,7 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 	if secureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// can access the metrics endpoint. The RBAC are configured in 'kustomize/rbac/kustomization.yaml'. More info:
 		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
@@ -159,7 +165,7 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "bc2f8e39.cloudnimbus.io",
+		LeaderElectionID:       constants.LeaderElectionID,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -173,31 +179,33 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, errors.ErrStartManager)
 		return err
 	}
 
 	if err = (&controller.BreakglassReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor(constants.ControllerIdentity),
+		Config:   cfg,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Breakglass")
+		setupLog.Error(err, errors.ErrCreateController, "controller", constants.ControllerIdentity)
 		return err
 	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		setupLog.Error(err, errors.ErrSetupHealthCheck)
 		return err
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		setupLog.Error(err, errors.ErrSetupReadyCheck)
 		return err
 	}
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
-		setupLog.Error(err, "problem running manager")
+		setupLog.Error(err, errors.ErrRunManager)
 		return err
 	}
 

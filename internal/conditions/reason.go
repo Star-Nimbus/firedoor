@@ -20,4 +20,10 @@ const (
 	RoleBindingFailed Reason = "RoleBindingFailed"
 	// RevokeFailed indicates the revocation operation failed
 	RevokeFailed Reason = "RevokeFailed"
+	// RecurringAccessPending indicates recurring access is pending next activation
+	RecurringAccessPending Reason = "RecurringAccessPending"
+	// RecurringAccessActive indicates recurring access is currently active
+	RecurringAccessActive Reason = "RecurringAccessActive"
+	// RecurringAccessScheduled indicates recurring access has been scheduled
+	RecurringAccessScheduled Reason = "RecurringAccessScheduled"
 )

@@ -1,0 +1,19 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: emergency-access-request
+  namespace: default
+  annotations:
+    # Revocation annotation - the controller will look for this
+    firedoor.cloudnimbus.io/revoke: "true"
+    firedoor.cloudnimbus.io/revoke-reason: "Emergency maintenance completed"
+    firedoor.cloudnimbus.io/revoked-by: "emergency-admin@example.com"
+    firedoor.cloudnimbus.io/revoked-at: "2024-01-15T11:45:00Z"
+spec:
+  # Same configuration as original request
+  user: "emergency-admin@example.com"
+  role: "cluster-admin"
+  namespace: ""
+  durationMinutes: 120
+  reason: "Emergency database maintenance required"
+  approved: true 

@@ -1,0 +1,47 @@
+# This file is used as a template for checking breakglass status
+# It's not applied directly, but used by the Makefile to verify the request status
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: emergency-access-request
+  namespace: default
+spec:
+  user: "emergency-admin@example.com"
+  role: "cluster-admin"
+  namespace: ""
+  durationMinutes: 120
+  reason: "Emergency database maintenance required"
+  approved: true
+status:
+  # Expected status after approval
+  phase: "Active"
+  
+  # Timestamps
+  expiresAt: "2024-01-15T12:30:00Z"
+  grantedAt: "2024-01-15T10:30:00Z"
+  
+  # Approval information
+  approvedBy: "firedoor-controller"
+  
+  # Conditions
+  conditions:
+    - type: "Approved"
+      status: "True"
+      reason: "AutoApproved"
+      message: "Breakglass access automatically approved for emergency situation"
+    - type: "Active"
+      status: "True"
+      reason: "AccessGranted"
+      message: "Breakglass access is currently active"
+  
+  # Access details
+  access:
+    grantedAt: "2024-01-15T10:30:00Z"
+    expiresAt: "2024-01-15T12:30:00Z"
+    remainingTime: "1h45m"
+    
+  # Audit information
+  audit:
+    approvedBy: "firedoor-controller"
+    approvedAt: "2024-01-15T10:30:00Z"
+    justification: "Emergency database maintenance required" 

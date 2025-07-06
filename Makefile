@@ -57,9 +57,19 @@ version: ## Display version information.
 
 ##@ Development
 
+# Where controller-gen should drop CRDs (temporary directory for wrapping)
+GEN_CRD_DIR := $(PWD)/.generated
+
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:dir=$(GEN_CRD_DIR)
+	@$(MAKE) wrap-crd
+
+.PHONY: wrap-crd
+wrap-crd: ## Wrap generated CRDs with Helm templating
+	@echo "🔄 Wrapping CRDs with Helm templating..."
+	@chmod +x scripts/wrap-crd.sh
+	@./scripts/wrap-crd.sh
 
 .PHONY: sync-crd
 sync-crd: ## Sync CRD from base to Helm chart template
@@ -135,7 +145,7 @@ hooks: setup-hooks ## Alias for setup-hooks
 ##@ Build
 
 .PHONY: build
-build: manifests sync-crd generate fmt vet ## Build manager binary.
+build: manifests generate fmt vet ## Build manager binary.
 	go build $(GO_BUILD_FLAGS) -o bin/manager cmd/main.go
 
 .PHONY: build-cli
@@ -177,8 +187,8 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default > dist/install.yaml
+	cd kustomize/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build kustomize/default > dist/install.yaml
 
 ##@ Deployment
 
@@ -188,20 +198,20 @@ endif
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
+	$(KUSTOMIZE) build kustomize/crd | $(KUBECTL) apply -f -
 
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUSTOMIZE) build kustomize/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+	cd kustomize/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build kustomize/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+	$(KUSTOMIZE) build kustomize/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Dependencies
 
