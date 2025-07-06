@@ -109,13 +109,6 @@ jobs:
   e2e-test:
     runs-on: ubuntu-latest
     needs: test
-    services:
-      kind:
-        image: kindest/node:v1.29.2
-        options: >-
-          --health-cmd="kubectl get nodes" --health-interval=30s --health-timeout=5s --health-retries=5
-        ports:
-          - 6443:6443
     steps:
       - uses: actions/checkout@v4
 
@@ -124,16 +117,38 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Cache kubectl and Kind
+        id: cache-k8s-tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.kube
+            /usr/local/bin/kubectl
+            /usr/local/bin/kind
+          key: k8s-tools-${{ runner.os }}-v1.29.2-v0.20.0
+
       - name: Install kubectl
+        if: steps.cache-k8s-tools.outputs.cache-hit != 'true'
         uses: azure/setup-kubectl@v4
 
-      - name: Generate manifests
-        run: make manifests
+      - name: Install Kind
+        if: steps.cache-k8s-tools.outputs.cache-hit != 'true'
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Create Kind cluster
+        run: |
+          kind create cluster --name e2e-test --image kindest/node:v1.29.2 --wait 5m
+          kind export kubeconfig --name e2e-test
 
       - name: Run e2e tests
-        env:
-          KUBECONFIG: /home/runner/.kube/config
         run: make test-e2e
+
+      - name: Cleanup Kind cluster
+        if: always()
+        run: kind delete cluster --name e2e-test
 
   build:
     runs-on: ubuntu-latest
