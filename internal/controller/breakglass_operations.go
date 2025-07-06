@@ -89,8 +89,13 @@ func safeName(parts ...string) string {
 // patchStatus updates the status with retry logic for conflicts
 func (o *breakglassOperator) patchStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, mutate func()) error {
 	return retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		latest := &accessv1alpha1.Breakglass{}
+		if err := o.client.Get(ctx, client.ObjectKeyFromObject(bg), latest); err != nil {
+			return err
+		}
 		mutate()
-		return o.client.Status().Update(ctx, bg)
+		latest.Status = bg.Status
+		return o.client.Status().Update(ctx, latest)
 	})
 }
 
