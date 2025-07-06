@@ -25,8 +25,6 @@ issues:
   exclude:
     - 'Error return value of .*(Close|Write|Flush).* is not checked'
 
-  # path- or text-scoped tweaks (same logic you had, just moved under `issues.rules`)
-
 linters:
   disable-all: true
   enable:
@@ -52,10 +50,8 @@ linters:
     - unconvert
     - unparam
     - unused
-  # If you want opinionated bundles, put them **here** (not inside exclusions):
-  # presets: [bugs, style]
 
-linters-settings:            # top-level block for per-linter knobs :contentReference[oaicite:2]{index=2}
+linters-settings:          
   gocyclo:
     min-complexity: 15
   gocognit:
