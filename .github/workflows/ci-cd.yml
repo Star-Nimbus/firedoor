@@ -138,15 +138,13 @@ jobs:
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
 
-      - name: Create Kind cluster
+      - name: Run e2e tests
         run: |
           kind create cluster --name e2e-test --image kindest/node:v1.29.2 --wait 5m
           kind get kubeconfig --name e2e-test > kubeconfig.yaml
-          echo "KUBECONFIG=$PWD/kubeconfig.yaml" >> $GITHUB_ENV
-
-      - name: Run e2e tests
-        run: make test-e2e
-
+          export KUBECONFIG=$PWD/kubeconfig.yaml
+          kubectl config use-context kind-e2e-test
+          make test-e2e
       - name: Cleanup Kind cluster
         if: always()
         run: kind delete cluster --name e2e-test
