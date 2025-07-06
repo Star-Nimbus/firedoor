@@ -90,7 +90,7 @@ var _ = Describe("Breakglass Controller", func() {
 			}
 			// Create a disabled Alertmanager service for testing
 			alertService := alerting.NewAlertmanagerService(&config.AlertmanagerConfig{Enabled: false}, controllerReconciler.Recorder)
-			controllerReconciler.operator = NewBreakglassOperator(controllerReconciler.Client, controllerReconciler.Recorder, alertService)
+			controllerReconciler.operator = NewBreakglassOperator(controllerReconciler.Client, controllerReconciler.Recorder, alertService, false)
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
@@ -165,7 +165,7 @@ var _ = Describe("Breakglass Controller", func() {
 		}
 		// Create a disabled Alertmanager service for testing
 		alertService := alerting.NewAlertmanagerService(&config.AlertmanagerConfig{Enabled: false}, controllerReconciler.Recorder)
-		controllerReconciler.operator = NewBreakglassOperator(controllerReconciler.Client, controllerReconciler.Recorder, alertService)
+		controllerReconciler.operator = NewBreakglassOperator(controllerReconciler.Client, controllerReconciler.Recorder, alertService, false)
 		controllerReconciler.recurringManager = NewRecurringBreakglassManager(time.UTC)
 
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
