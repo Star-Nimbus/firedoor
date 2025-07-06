@@ -8,28 +8,37 @@ set -euo pipefail
 # Function to get version from git
 get_version() {
     local version=""
-    
+    local suffix=""
+
+    if [ -n "${CI:-}" ]; then
+        suffix="-ci"
+    else
+        suffix="-dev"
+    fi
+
     # Check if we're in a git repository
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        echo "dev"
+        echo "dev${suffix}"
         return
     fi
-    
+
     # Try to get version from git tags
     if git describe --tags --exact-match >/dev/null 2>&1; then
         # We're on a tagged commit
         version=$(git describe --tags --exact-match)
+        suffix=""
     elif git describe --tags >/dev/null 2>&1; then
         # We're ahead of the latest tag
-        version=$(git describe --tags --always --dirty)
+        version="$(git describe --tags --always --dirty)${suffix}"
     else
         # No tags found, use commit hash
         version=$(git rev-parse --short HEAD)
         if [ -n "$(git status --porcelain)" ]; then
             version="${version}-dirty"
         fi
+        version="${version}${suffix}"
     fi
-    
+
     echo "${version}"
 }
 
