@@ -117,6 +117,13 @@ func (o *breakglassOperator) patchStatus(ctx context.Context, bg *accessv1alpha1
 		mutate(latest)
 		// Update the latest object
 		return o.client.Status().Update(ctx, latest)
+		latest := &accessv1alpha1.Breakglass{}
+		if err := o.client.Get(ctx, client.ObjectKeyFromObject(bg), latest); err != nil {
+			return err
+		}
+		mutate()
+		latest.Status = bg.Status
+		return o.client.Status().Update(ctx, latest)
 	})
 }
 
