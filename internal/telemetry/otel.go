@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -67,4 +68,12 @@ func SetupOTel(ctx context.Context, exporterType, endpoint, serviceName string) 
 // Simple stdout exporter for development
 func newStdoutExporter() (sdktrace.SpanExporter, error) {
 	return stdouttrace.New(stdouttrace.WithPrettyPrint())
+}
+
+// WithSpan is a helper function to create a span and end it when the function returns
+func WithSpan(ctx context.Context, tracer trace.Tracer, name string, f func(ctx context.Context) error) error {
+	ctx, span := tracer.Start(ctx, name)
+	defer span.End()
+
+	return f(ctx)
 }
