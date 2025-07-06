@@ -112,9 +112,7 @@ lint-fast: golangci-lint ## Run golangci-lint with fast mode (fewer linters)
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
 
-.PHONY: lint-yaml
-lint-yaml: ## Run YAML linting
-	yamllint -c .yamllint config/ || true
+
 
 .PHONY: lint-helm
 lint-helm: ## Run Helm chart linting
@@ -123,42 +121,7 @@ lint-helm: ## Run Helm chart linting
 		helm lint "$$chart" || true; \
 	done
 
-.PHONY: vendor
-vendor: ## Vendor dependencies
-	go mod vendor
 
-.PHONY: vendor-update
-vendor-update: ## Update and vendor dependencies
-	go mod tidy
-	go mod vendor
-
-.PHONY: vendor-prune
-vendor-prune: ## Prune unused dependencies from vendor
-	go mod tidy
-	go mod vendor
-	go mod verify
-
-.PHONY: vendor-clean
-vendor-clean: ## Clean vendor directory
-	rm -rf vendor/
-	go mod tidy
-
-.PHONY: vendor-init
-vendor-init: ## Initialize vendor directory (first time setup)
-	@echo "🔧 Setting up vendor mode..."
-	@if [ -d "vendor" ]; then \
-		echo "🗑️  Removing existing vendor directory..."; \
-		rm -rf vendor/; \
-	fi
-	@echo "📦 Tidying up go.mod and go.sum..."
-	@go mod tidy
-	@echo "📥 Downloading dependencies to vendor..."
-	@go mod vendor
-	@echo "🔍 Verifying vendor integrity..."
-	@go mod verify
-	@echo "✅ Vendor directory created successfully!"
-	@echo "💡 Use 'make vendor-update' to update dependencies"
-	@echo "💡 Use 'make vendor-prune' to clean up unused dependencies"
 
 .PHONY: setup-hooks
 setup-hooks: install-lefthook ## Set up Git hooks with Lefthook
@@ -172,12 +135,12 @@ hooks: setup-hooks ## Alias for setup-hooks
 ##@ Build
 
 .PHONY: build
-build: manifests sync-crd generate fmt vet vendor ## Build manager binary.
-	go build -mod=vendor $(GO_BUILD_FLAGS) -o bin/manager cmd/main.go
+build: manifests sync-crd generate fmt vet ## Build manager binary.
+	go build $(GO_BUILD_FLAGS) -o bin/manager cmd/main.go
 
 .PHONY: build-cli
-build-cli: vendor ## Build CLI binary.
-	go build -mod=vendor $(GO_BUILD_FLAGS) -o bin/firedoor cmd/main.go
+build-cli: ## Build CLI binary.
+	go build $(GO_BUILD_FLAGS) -o bin/firedoor cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -247,18 +210,20 @@ LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
+
+## Tool Versions
+KUSTOMIZE_VERSION ?= v5.3.0
+CONTROLLER_TOOLS_VERSION ?= v0.14.0
+ENVTEST_VERSION ?= release-0.17
+GOLANGCI_LINT_VERSION ?= v1.59.0
+
+
 ## Tool Binaries
 KUBECTL ?= kubectl
 KUSTOMIZE ?= $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest-$(ENVTEST_VERSION)
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
-
-## Tool Versions
-KUSTOMIZE_VERSION ?= v5.3.0
-CONTROLLER_TOOLS_VERSION ?= v0.14.0
-ENVTEST_VERSION ?= release-0.17
-GOLANGCI_LINT_VERSION ?= v1.57.2
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.

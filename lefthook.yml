@@ -27,10 +27,7 @@ pre-commit:
       glob: "*.go"
       run: make vet
 
-    # YAML linting
-    yaml-lint:
-      glob: "*.{yml,yaml}"
-      run: make lint-yaml
+
 
     # Helm chart linting
     helm-lint:
@@ -41,7 +38,7 @@ pre-commit:
     todo-check:
       glob: "*.{go,yml,yaml,md}"
       run: |
-        if grep -r "TODO\|FIXME" . --exclude-dir={.git,bin,node_modules,vendor} --exclude={*.log,*.tmp}; then
+        if grep -r "TODO\|FIXME" . --exclude-dir={.git,bin,node_modules} --exclude={*.log,*.tmp}; then
           echo "⚠️  Found TODO/FIXME comments. Consider addressing them before committing."
           exit 0  # Don't fail the commit, just warn
         fi
@@ -98,8 +95,6 @@ post-merge:
       run: |
         echo "🔄 Updating dependencies after merge..."
         go mod tidy
-        go mod vendor
-        go mod verify
 
 # Post-checkout hook - runs after checkout
 post-checkout:
