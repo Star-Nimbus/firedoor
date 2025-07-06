@@ -1,17 +1,16 @@
 /*
-Copyright 2025.
+   End‑to‑end flow tests for the Firedoor operator.  The suite is **black‑box**: we
+   only interact with the cluster API surface – never internal packages.  We:
+     1. Spin‑up the operator with `skaffold run --profile=dev` **once** per suite.
+     2. Exercise a couple of happy‑path and validation scenarios.
+     3. Tear the deployment down with `skaffold delete`.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+   Running:
+     make test-e2e         # invokes `go test ./test/e2e -v -ginkgo.v`
 
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+   NOTE: We intentionally removed the `//go:build e2e` build‑tag because CI
+   invokes the test binary without custom tags – having the tag meant the test
+   was silently excluded (0 specs executed).
 */
 
 package e2e
@@ -19,17 +18,19 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"log"
+	"math/rand"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
@@ -37,474 +38,205 @@ import (
 	"github.com/cloud-nimbus/firedoor/test/utils"
 )
 
-const namespace = "firedoor-system"
+const (
+	operatorNamespace = "firedoor-system"
+	pollInterval      = 2 * time.Second
+	deployTimeout     = 3 * time.Minute  // give image pull & webhooks some slack
+	shortTimeout      = 90 * time.Second // validation / activation path
+	longTimeout       = 4 * time.Minute  // expiry path
+)
 
-var _ = Describe("controller", Ordered, func() {
-	var clientset *kubernetes.Clientset
-	var k8sClient client.Client
-	var ctx context.Context
+// randomName generates a simple DNS-1123 compliant name
+func randomName(prefix string) string {
+	return fmt.Sprintf("%s-%06x", prefix, rand.Int31())
+}
 
+var _ = Describe("Firedoor operator", Ordered, Serial, func() {
+	var (
+		ctx             context.Context
+		clientset       *kubernetes.Clientset
+		k8sClient       ctrlclient.Client
+		discoveryClient discovery.DiscoveryInterface
+	)
+
+	// ------------------------------------------------------------
+	// cluster + client bootstrap (once per suite)
+	// ------------------------------------------------------------
 	BeforeAll(func() {
 		ctx = context.Background()
 
-		// Setup kubernetes clientset
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		configOverrides := &clientcmd.ConfigOverrides{}
-		kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-		k8sConfig, err := kubeConfig.ClientConfig()
-		if err != nil {
-			log.Fatalf("failed to load kubeconfig: %v", err)
-		}
+		// Seed random number generator for consistent test behavior
+		rand.Seed(time.Now().UnixNano())
 
-		clientset, err = kubernetes.NewForConfig(k8sConfig)
+		restCfg, err := config.GetConfig()
 		Expect(err).NotTo(HaveOccurred())
 
-		// Setup controller-runtime client
-		cfg, err := config.GetConfig()
+		clientset, err = kubernetes.NewForConfig(restCfg)
 		Expect(err).NotTo(HaveOccurred())
 
-		// Create a new scheme and add the Breakglass type
-		s := runtime.NewScheme()
-		err = accessv1alpha1.AddToScheme(s)
+		discoveryClient, err = discovery.NewDiscoveryClientForConfig(restCfg)
 		Expect(err).NotTo(HaveOccurred())
 
-		k8sClient, err = client.New(cfg, client.Options{Scheme: s})
+		scheme := runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(accessv1alpha1.AddToScheme(scheme)).To(Succeed())
+
+		k8sClient, err = ctrlclient.New(restCfg, ctrlclient.Options{Scheme: scheme})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("creating manager namespace")
-		ns := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: namespace,
-			},
-		}
-		_, err = clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
-		if err != nil {
-			// Namespace might already exist, ignore error
-			fmt.Printf("Namespace creation failed (might already exist): %v\n", err)
-		}
+		ensureNamespace(ctx, clientset, operatorNamespace)
 	})
 
-	Context("Operator", func() {
-		It("should run successfully", func() {
-			By("deploying the controller-manager using Skaffold")
-			Expect(utils.SkaffoldRun("dev")).To(Succeed())
-
-			By("validating that the controller-manager pod is running as expected")
-			verifyControllerUp := func() error {
-				// Get pods with label selector
-				listOptions := metav1.ListOptions{
-					LabelSelector: "control-plane=controller-manager",
-				}
-
-				podList, err := clientset.CoreV1().Pods(namespace).List(ctx, listOptions)
-				if err != nil {
-					return fmt.Errorf("failed to list pods: %w", err)
-				}
-
-				runningPods := []corev1.Pod{}
-				for _, pod := range podList.Items {
-					if pod.DeletionTimestamp == nil {
-						runningPods = append(runningPods, pod)
-					}
-				}
-
-				if len(runningPods) != 1 {
-					return fmt.Errorf("expect 1 controller pods running, but got %d", len(runningPods))
-				}
-
-				controllerPod := runningPods[0]
-				ExpectWithOffset(2, controllerPod.Name).Should(ContainSubstring("controller-manager"))
-
-				// Validate pod status
-				if controllerPod.Status.Phase != corev1.PodRunning {
-					return fmt.Errorf("controller pod in %s status", controllerPod.Status.Phase)
-				}
-
-				return nil
-			}
-			EventuallyWithOffset(1, verifyControllerUp, time.Minute*2, time.Second).Should(Succeed())
-
-			By("cleaning up Skaffold deployment")
-			utils.CleanupSkaffoldDeployment("dev")
-		})
-
-		It("should handle breakglass CRD operations with conditions", func() {
-			By("deploying the controller-manager using Skaffold")
-			Expect(utils.SkaffoldRun("dev")).To(Succeed())
-
-			// Wait for controller to be ready and CRD to be available
-			time.Sleep(10 * time.Second)
-			Expect(utils.WaitForCRD()).To(Succeed())
-
-			By("creating a valid breakglass resource with user")
-			breakglass := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-breakglass-user",
-					Namespace: namespace,
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: "User",
-						Name: "test-user",
-					}},
-					AccessPolicy: &accessv1alpha1.AccessPolicy{
-						Rules: []accessv1alpha1.AccessRule{{
-							Actions:    []accessv1alpha1.Action{"get", "list"},
-							Resources:  []string{"pods", "deployments"},
-							Namespaces: []string{"default"},
-						}},
-					},
-					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
-					Justification:    "E2E test with user",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, breakglass)).To(Succeed())
-
-			By("verifying breakglass is created and conditions are set")
-			Eventually(func() error {
-				var bg accessv1alpha1.Breakglass
-				if err := k8sClient.Get(ctx, client.ObjectKey{Name: "test-breakglass-user", Namespace: namespace}, &bg); err != nil {
-					return err
-				}
-
-				// Check state is set
-				if bg.Status.Phase == "" {
-					return fmt.Errorf("state not set")
-				}
-
-				// Check conditions
-				if len(bg.Status.Conditions) == 0 {
-					return fmt.Errorf("no conditions set")
-				}
-
-				// Find approved condition
-				var approvedCondition *metav1.Condition
-				for i := range bg.Status.Conditions {
-					if bg.Status.Conditions[i].Type == conditions.Approved.String() {
-						approvedCondition = &bg.Status.Conditions[i]
-						break
-					}
-				}
-
-				if approvedCondition == nil {
-					return fmt.Errorf("approved condition not found")
-				}
-
-				if approvedCondition.Status != metav1.ConditionTrue {
-					return fmt.Errorf("approved condition not true, got: %s", approvedCondition.Status)
-				}
-
-				if approvedCondition.Reason != conditions.AccessGranted.String() {
-					return fmt.Errorf("expected reason %s, got: %s", conditions.AccessGranted.String(), approvedCondition.Reason)
-				}
-
-				// Find active condition
-				var activeCondition *metav1.Condition
-				for i := range bg.Status.Conditions {
-					if bg.Status.Conditions[i].Type == conditions.Active.String() {
-						activeCondition = &bg.Status.Conditions[i]
-						break
-					}
-				}
-
-				if activeCondition == nil {
-					return fmt.Errorf("active condition not found")
-				}
-
-				if activeCondition.Status != metav1.ConditionTrue {
-					return fmt.Errorf("active condition not true, got: %s", activeCondition.Status)
-				}
-
-				if activeCondition.Reason != conditions.AccessActive.String() {
-					return fmt.Errorf("expected reason %s, got: %s", conditions.AccessActive.String(), activeCondition.Reason)
-				}
-
-				return nil
-			}, time.Minute*2, time.Second).Should(Succeed())
-
-			By("cleaning up test breakglass resource")
-			Expect(k8sClient.Delete(ctx, breakglass)).To(Succeed())
-
-			By("cleaning up Skaffold deployment")
-			utils.CleanupSkaffoldDeployment("dev")
-		})
-
-		It("should handle breakglass with group", func() {
-			By("deploying the controller-manager using Skaffold")
-			Expect(utils.SkaffoldRun("dev")).To(Succeed())
-
-			// Wait for controller to be ready and CRD to be available
-			time.Sleep(10 * time.Second)
-			Expect(utils.WaitForCRD()).To(Succeed())
-
-			By("creating a valid breakglass resource with group")
-			breakglass := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-breakglass-group",
-					Namespace: namespace,
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: "Group",
-						Name: "test-group",
-					}},
-					AccessPolicy: &accessv1alpha1.AccessPolicy{
-						Rules: []accessv1alpha1.AccessRule{{
-							Actions:    []accessv1alpha1.Action{"get", "list"},
-							Resources:  []string{"pods", "deployments"},
-							Namespaces: []string{"default"},
-						}},
-					},
-					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
-					Justification:    "E2E test with group",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, breakglass)).To(Succeed())
-
-			By("verifying breakglass is created and conditions are set")
-			Eventually(func() error {
-				var bg accessv1alpha1.Breakglass
-				if err := k8sClient.Get(ctx, client.ObjectKey{Name: "test-breakglass-group", Namespace: namespace}, &bg); err != nil {
-					return err
-				}
-
-				// Check state is set
-				if bg.Status.Phase == "" {
-					return fmt.Errorf("state not set")
-				}
-
-				// Check conditions
-				if len(bg.Status.Conditions) == 0 {
-					return fmt.Errorf("no conditions set")
-				}
-
-				// Find approved condition
-				var approvedCondition *metav1.Condition
-				for i := range bg.Status.Conditions {
-					if bg.Status.Conditions[i].Type == conditions.Approved.String() {
-						approvedCondition = &bg.Status.Conditions[i]
-						break
-					}
-				}
-
-				if approvedCondition == nil {
-					return fmt.Errorf("approved condition not found")
-				}
-
-				if approvedCondition.Status != metav1.ConditionTrue {
-					return fmt.Errorf("approved condition not true, got: %s", approvedCondition.Status)
-				}
-
-				return nil
-			}, time.Minute*2, time.Second).Should(Succeed())
-
-			By("cleaning up test breakglass resource")
-			Expect(k8sClient.Delete(ctx, breakglass)).To(Succeed())
-
-			By("cleaning up Skaffold deployment")
-			utils.CleanupSkaffoldDeployment("dev")
-		})
-
-		It("should handle invalid breakglass - missing user and group", func() {
-			By("deploying the controller-manager using Skaffold")
-			Expect(utils.SkaffoldRun("dev")).To(Succeed())
-
-			// Wait for controller to be ready and CRD to be available
-			time.Sleep(10 * time.Second)
-			Expect(utils.WaitForCRD()).To(Succeed())
-
-			By("creating an invalid breakglass resource without user or group")
-			breakglass := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-breakglass-invalid",
-					Namespace: namespace,
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					AccessPolicy: &accessv1alpha1.AccessPolicy{
-						Rules: []accessv1alpha1.AccessRule{{
-							Actions:    []accessv1alpha1.Action{"get", "list"},
-							Resources:  []string{"pods", "deployments"},
-							Namespaces: []string{"default"},
-						}},
-					},
-					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
-					Justification:    "E2E test invalid",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, breakglass)).To(Succeed())
-
-			By("verifying breakglass is created and denied conditions are set")
-			Eventually(func() error {
-				var bg accessv1alpha1.Breakglass
-				if err := k8sClient.Get(ctx, client.ObjectKey{Name: "test-breakglass-invalid", Namespace: namespace}, &bg); err != nil {
-					return err
-				}
-
-				// Check state is set to denied
-				if bg.Status.Phase == "" {
-					return fmt.Errorf("state not set")
-				}
-
-				if bg.Status.Phase != "Denied" {
-					return fmt.Errorf("expected state Denied, got: %s", bg.Status.Phase)
-				}
-
-				// Check conditions
-				if len(bg.Status.Conditions) == 0 {
-					return fmt.Errorf("no conditions set")
-				}
-
-				// Find denied condition
-				var deniedCondition *metav1.Condition
-				for i := range bg.Status.Conditions {
-					if bg.Status.Conditions[i].Type == conditions.Denied.String() {
-						deniedCondition = &bg.Status.Conditions[i]
-						break
-					}
-				}
-
-				if deniedCondition == nil {
-					return fmt.Errorf("denied condition not found")
-				}
-
-				if deniedCondition.Status != metav1.ConditionTrue {
-					return fmt.Errorf("denied condition not true, got: %s", deniedCondition.Status)
-				}
-
-				if deniedCondition.Reason != conditions.InvalidRequest.String() {
-					return fmt.Errorf("expected reason %s, got: %s", conditions.InvalidRequest.String(), deniedCondition.Reason)
-				}
-
-				// Find approved condition (should be false)
-				var approvedCondition *metav1.Condition
-				for i := range bg.Status.Conditions {
-					if bg.Status.Conditions[i].Type == conditions.Approved.String() {
-						approvedCondition = &bg.Status.Conditions[i]
-						break
-					}
-				}
-
-				if approvedCondition == nil {
-					return fmt.Errorf("approved condition not found")
-				}
-
-				if approvedCondition.Status != metav1.ConditionFalse {
-					return fmt.Errorf("approved condition not false, got: %s", approvedCondition.Status)
-				}
-
-				return nil
-			}, time.Minute*2, time.Second).Should(Succeed())
-
-			By("cleaning up test breakglass resource")
-			Expect(k8sClient.Delete(ctx, breakglass)).To(Succeed())
-
-			By("cleaning up Skaffold deployment")
-			utils.CleanupSkaffoldDeployment("dev")
-		})
-
-		It("should handle breakglass expiration", func() {
-			By("deploying the controller-manager using Skaffold")
-			Expect(utils.SkaffoldRun("dev")).To(Succeed())
-
-			// Wait for controller to be ready and CRD to be available
-			time.Sleep(10 * time.Second)
-			Expect(utils.WaitForCRD()).To(Succeed())
-
-			By("creating a breakglass resource with short duration")
-			breakglass := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-breakglass-expire",
-					Namespace: namespace,
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: "User",
-						Name: "test-user-expire",
-					}},
-					AccessPolicy: &accessv1alpha1.AccessPolicy{
-						Rules: []accessv1alpha1.AccessRule{{
-							Actions:    []accessv1alpha1.Action{"get", "list"},
-							Resources:  []string{"pods", "deployments"},
-							Namespaces: []string{"default"},
-						}},
-					},
-					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Hour},
-					Justification:    "E2E test expiration",
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, breakglass)).To(Succeed())
-
-			By("waiting for breakglass to be created and active")
-			Eventually(func() error {
-				var bg accessv1alpha1.Breakglass
-				if err := k8sClient.Get(ctx, client.ObjectKey{Name: "test-breakglass-expire", Namespace: namespace}, &bg); err != nil {
-					return err
-				}
-
-				if bg.Status.Phase == "" {
-					return fmt.Errorf("state not set")
-				}
-
-				if bg.Status.Phase != "Active" {
-					return fmt.Errorf("breakglass not active yet")
-				}
-
-				return nil
-			}, time.Minute, time.Second).Should(Succeed())
-
-			By("waiting for breakglass to expire")
-			Eventually(func() error {
-				var bg accessv1alpha1.Breakglass
-				if err := k8sClient.Get(ctx, client.ObjectKey{Name: "test-breakglass-expire", Namespace: namespace}, &bg); err != nil {
-					return err
-				}
-
-				// Check if expired
-				if bg.Status.Phase == "" {
-					return fmt.Errorf("state not set")
-				}
-
-				if bg.Status.Phase != "Expired" {
-					return fmt.Errorf("expected state Expired, got: %s", bg.Status.Phase)
-				}
-
-				// Find expired condition
-				var expiredCondition *metav1.Condition
-				for i := range bg.Status.Conditions {
-					if bg.Status.Conditions[i].Type == conditions.Expired.String() {
-						expiredCondition = &bg.Status.Conditions[i]
-						break
-					}
-				}
-
-				if expiredCondition == nil {
-					return fmt.Errorf("expired condition not found")
-				}
-
-				if expiredCondition.Status != metav1.ConditionTrue {
-					return fmt.Errorf("expired condition not true, got: %s", expiredCondition.Status)
-				}
-
-				if expiredCondition.Reason != conditions.AccessExpired.String() {
-					return fmt.Errorf("expected reason %s, got: %s", conditions.AccessExpired.String(), expiredCondition.Reason)
-				}
-
-				return nil
-			}, time.Minute*3, time.Second*5).Should(Succeed())
-
-			By("cleaning up test breakglass resource")
-			Expect(k8sClient.Delete(ctx, breakglass)).To(Succeed())
-
-			By("cleaning up Skaffold deployment")
-			utils.CleanupSkaffoldDeployment("dev")
-		})
+	// ------------------------------------------------------------
+	// deploy operator once – all specs run against same instance
+	// ------------------------------------------------------------
+	BeforeAll(func() {
+		By("deploying operator with skaffold …")
+		Expect(utils.SkaffoldRun("dev")).To(Succeed())
+		DeferCleanup(func() { utils.CleanupSkaffoldDeployment("dev") })
+
+		Eventually(controllerPodReady(ctx, clientset), deployTimeout, pollInterval).Should(Succeed())
+
+		// Wait for the breakglass CRD to be available using discovery
+		gvResource := schema.GroupVersionResource{
+			Group:    "access.cloudnimbus.io",
+			Version:  "v1alpha1",
+			Resource: "breakglasses",
+		}
+		Eventually(func() error {
+			return utils.WaitForCRDWithDiscovery(ctx, discoveryClient, gvResource, 30*time.Second)
+		}, deployTimeout, pollInterval).Should(Succeed())
+	})
+
+	// ------------------------------------------------------------
+	// Scenario: happy‑path activation then automatic expiry
+	// ------------------------------------------------------------
+	It("grants and then expires a Breakglass session", func() {
+		name := randomName("bg-happy")
+		bg := newBreakglass(name, withUser("e2e-user"), withDuration(25*time.Second))
+		Expect(k8sClient.Create(ctx, bg)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, bg)
+
+		Eventually(bgPhase(ctx, k8sClient, name), shortTimeout, pollInterval).Should(Equal(accessv1alpha1.PhaseActive))
+		Eventually(bgPhase(ctx, k8sClient, name), longTimeout, pollInterval).Should(Equal(accessv1alpha1.PhaseExpired))
+
+		fetched := mustFetch(ctx, k8sClient, name)
+		Expect(hasCondition(fetched, conditions.Expired, metav1.ConditionTrue)).To(BeTrue())
+	})
+
+	// ------------------------------------------------------------
+	// Scenario: validation failure – no subjects provided
+	// ------------------------------------------------------------
+	It("denies a Breakglass without subjects", func() {
+		name := randomName("bg-invalid")
+		bg := newBreakglass(name) // no user / group
+		Expect(k8sClient.Create(ctx, bg)).To(Succeed())
+		DeferCleanup(k8sClient.Delete, ctx, bg)
+
+		Eventually(bgPhase(ctx, k8sClient, name), shortTimeout, pollInterval).Should(Equal(accessv1alpha1.PhaseDenied))
+		fetched := mustFetch(ctx, k8sClient, name)
+		Expect(hasCondition(fetched, conditions.Denied, metav1.ConditionTrue)).To(BeTrue())
 	})
 })
+
+// -----------------------------------------------------------------------------
+// cluster helpers
+// -----------------------------------------------------------------------------
+
+func ensureNamespace(ctx context.Context, cs *kubernetes.Clientset, ns string) {
+	if _, err := cs.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); err == nil {
+		return
+	}
+	_, _ = cs.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}, metav1.CreateOptions{})
+}
+
+func controllerPodReady(ctx context.Context, cs *kubernetes.Clientset) func() error {
+	return func() error {
+		pods, err := cs.CoreV1().Pods(operatorNamespace).List(ctx, metav1.ListOptions{LabelSelector: "control-plane=controller-manager"})
+		if err != nil {
+			return err
+		}
+		if len(pods.Items) != 1 {
+			return fmt.Errorf("expected one controller pod, got %d", len(pods.Items))
+		}
+		if phase := pods.Items[0].Status.Phase; phase != corev1.PodRunning {
+			return fmt.Errorf("controller pod not running (phase %s)", phase)
+		}
+		return nil
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Breakglass helpers
+// -----------------------------------------------------------------------------
+
+func mustFetch(ctx context.Context, c ctrlclient.Client, name string) *accessv1alpha1.Breakglass {
+	bg, err := fetchBG(ctx, c, name)
+	Expect(err).NotTo(HaveOccurred())
+	return bg
+}
+
+func fetchBG(ctx context.Context, c ctrlclient.Client, name string) (*accessv1alpha1.Breakglass, error) {
+	var bg accessv1alpha1.Breakglass
+	if err := c.Get(ctx, ctrlclient.ObjectKey{Name: name, Namespace: operatorNamespace}, &bg); err != nil {
+		return nil, err
+	}
+	return &bg, nil
+}
+
+func bgPhase(ctx context.Context, c ctrlclient.Client, name string) func() (accessv1alpha1.BreakglassPhase, error) {
+	return func() (accessv1alpha1.BreakglassPhase, error) {
+		bg, err := fetchBG(ctx, c, name)
+		if err != nil {
+			return "", err
+		}
+		return bg.Status.Phase, nil
+	}
+}
+
+func hasCondition(bg *accessv1alpha1.Breakglass, t conditions.Condition, status metav1.ConditionStatus) bool {
+	expectedType := t.String()
+	for i := range bg.Status.Conditions {
+		cond := bg.Status.Conditions[i]
+		if cond.Type == expectedType && cond.Status == status {
+			return true
+		}
+	}
+	return false
+}
+
+type bgOpt func(*accessv1alpha1.Breakglass)
+
+func newBreakglass(name string, opts ...bgOpt) *accessv1alpha1.Breakglass {
+	bg := &accessv1alpha1.Breakglass{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: operatorNamespace},
+		Spec: accessv1alpha1.BreakglassSpec{
+			AccessPolicy:  &accessv1alpha1.AccessPolicy{Rules: []accessv1alpha1.AccessRule{defaultRule()}},
+			Duration:      &metav1.Duration{Duration: time.Hour},
+			Justification: "e2e test",
+		},
+	}
+	for _, o := range opts {
+		o(bg)
+	}
+	return bg
+}
+
+func defaultRule() accessv1alpha1.AccessRule {
+	return accessv1alpha1.AccessRule{
+		Actions:   []accessv1alpha1.Action{"get", "list"},
+		Resources: []string{"pods"},
+	}
+}
+
+func withUser(name string) bgOpt {
+	return func(bg *accessv1alpha1.Breakglass) {
+		bg.Spec.Subjects = []accessv1alpha1.SubjectRef{{Kind: "User", Name: name}}
+	}
+}
+
+func withDuration(d time.Duration) bgOpt {
+	return func(bg *accessv1alpha1.Breakglass) {
+		bg.Spec.Duration = &metav1.Duration{Duration: d}
+	}
+}

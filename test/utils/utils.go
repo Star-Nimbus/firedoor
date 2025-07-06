@@ -17,6 +17,7 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,6 +25,9 @@ import (
 	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/discovery"
 )
 
 // warnError will use the global GINKGO_WRITER to log a warning message.
@@ -168,4 +172,22 @@ func WaitForCRD() error {
 	// Wait a bit more to ensure the CRD is fully established
 	time.Sleep(5 * time.Second)
 	return nil
+}
+
+// WaitForCRDWithDiscovery waits until the given CRD's discovery doc is visible.
+func WaitForCRDWithDiscovery(ctx context.Context, dc discovery.DiscoveryInterface, gvr schema.GroupVersionResource, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		_, err := dc.ServerResourcesForGroupVersion(gvr.GroupVersion().String())
+		if discovery.IsGroupDiscoveryFailedError(err) || err == nil {
+			// keep going until the specific resource appears
+			resources, _ := dc.ServerResourcesForGroupVersion(gvr.GroupVersion().String())
+			for _, r := range resources.APIResources {
+				if r.Name == gvr.Resource {
+					return true, nil
+				}
+			}
+			return false, nil
+		}
+		return false, err // real error
+	})
 }
