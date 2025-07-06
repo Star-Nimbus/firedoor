@@ -6,10 +6,8 @@ metadata:
   name: breakglasses.access.cloudnimbus.io
   labels:
     {{- include "firedoor.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- include "firedoor.annotations" . | nindent 4 }}
 spec:
   group: access.cloudnimbus.io
   names:
