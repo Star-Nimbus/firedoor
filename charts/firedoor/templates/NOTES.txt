@@ -1,0 +1,101 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+{{- if .Values.rbac.create }}
+RBAC resources have been created for the Firedoor operator.
+{{- else }}
+RBAC resources were not created. Make sure you have the necessary permissions configured.
+{{- end }}
+
+{{- if .Values.crds.install }}
+Custom Resource Definitions (CRDs) have been installed.
+{{- else }}
+CRDs were not installed. Make sure to install them manually if needed.
+{{- end }}
+
+{{- if .Values.telemetry.enabled }}
+Telemetry is enabled. The operator will send metrics and logs to the configured endpoints.
+{{- else }}
+Telemetry is disabled.
+{{- end }}
+
+{{- if .Values.alerting.enabled }}
+Alerting is enabled. The operator will send alerts to the configured Alertmanager.
+{{- else }}
+Alerting is disabled.
+{{- end }}
+
+## Next Steps
+
+1. Verify the operator is running:
+   $ kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name=firedoor
+
+2. Check the operator logs:
+   $ kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name=firedoor
+
+3. Create your first Breakglass resource:
+   $ kubectl apply -f - <<EOF
+   apiVersion: access.cloudnimbus.io/v1alpha1
+   kind: Breakglass
+   metadata:
+     name: example-breakglass
+     namespace: default
+   spec:
+     subjects:
+     - kind: User
+       name: user@example.com
+     clusterRoles:
+     - admin
+     approvalRequired: false
+     duration: 1h
+     justification: "Example breakglass for testing"
+   EOF
+
+4. Monitor the breakglass status:
+   $ kubectl get breakglass -A
+   $ kubectl describe breakglass example-breakglass
+
+## Configuration
+
+The following configuration options are available:
+
+- **RBAC**: {{ .Values.rbac.create | ternary "Enabled" "Disabled" }}
+- **CRDs**: {{ .Values.crds.install | ternary "Enabled" "Disabled" }}
+- **Telemetry**: {{ .Values.telemetry.enabled | ternary "Enabled" "Disabled" }}
+- **Alerting**: {{ .Values.alerting.enabled | ternary "Enabled" "Disabled" }}
+- **Log Level**: {{ .Values.logLevel | default "info" }}
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Check the operator logs:
+   $ kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name=firedoor
+
+2. Verify RBAC permissions:
+   $ kubectl auth can-i create breakglass --namespace default
+
+3. Check CRD installation:
+   $ kubectl get crd breakglasses.access.cloudnimbus.io
+
+4. Review the operator status:
+   $ kubectl describe deployment firedoor-controller-manager -n {{ .Release.Namespace }}
+
+## Documentation
+
+For more information, visit:
+- GitHub: https://github.com/Star-Nimbus/firedoor
+- Documentation: https://github.com/Star-Nimbus/firedoor/docs
+
+## Support
+
+If you need help, please:
+1. Check the troubleshooting section above
+2. Review the GitHub issues: https://github.com/Star-Nimbus/firedoor/issues
+3. Create a new issue with detailed information about your problem 

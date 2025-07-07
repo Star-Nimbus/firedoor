@@ -1,13 +1,9 @@
 name: Sync Charts to Charts Repository
 
 on:
-  push:
-    branches: [ main, develop ]
-    paths:
-      - 'charts/firedoor/**'
-      - 'api/v1alpha1/**'
   pull_request:
-    branches: [ main ]
+    types: [closed]
+    branches: [ main, develop ]
     paths:
       - 'charts/firedoor/**'
       - 'api/v1alpha1/**'
@@ -16,6 +12,8 @@ on:
 jobs:
   sync-charts:
     runs-on: ubuntu-latest
+    # Only run if the PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
     steps:
     - name: Authenticate GitHub App
       id: auth
@@ -196,7 +194,8 @@ jobs:
           This PR automatically syncs the Helm charts from the firedoor repository.
           
           **Source**: `Star-Nimbus/firedoor@${{ github.sha }}`
-          **Trigger**: `${{ github.event_name }}`
+          **Trigger**: PR merge to `${{ github.base_ref }}`
+          **Merged PR**: #${{ github.event.pull_request.number }}
           
           **Version Strategy**: ${{ steps.version.outputs.version_strategy }}
           **Source Version**: ${{ steps.version.outputs.source_version }}
@@ -214,7 +213,7 @@ jobs:
           
           ---
           
-          This PR was created automatically by the sync-charts workflow.
+          This PR was created automatically by the sync-charts workflow after PR #${{ github.event.pull_request.number }} was merged.
         branch: sync-charts-${{ github.run_number }}
         delete-branch: true
         draft: false
@@ -237,6 +236,7 @@ jobs:
       run: |
         echo "✅ Charts successfully synced to charts repository"
         echo "Repository: https://github.com/Star-Nimbus/charts"
+        echo "Triggered by: PR #${{ github.event.pull_request.number }} merge"
         echo "Version: ${{ steps.version.outputs.source_version }} → ${{ steps.version.outputs.new_version }}"
         if [ -n "${{ steps.create-pr.outputs.pull-request-url }}" ]; then
           echo "Pull Request: ${{ steps.create-pr.outputs.pull-request-url }}"
@@ -246,6 +246,7 @@ jobs:
       if: failure()
       run: |
         echo "❌ Failed to sync charts to charts repository"
+        echo "Triggered by: PR #${{ github.event.pull_request.number }} merge"
         echo "Check the workflow logs for details"
         exit 1
 
