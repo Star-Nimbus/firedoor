@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: metrics-system
+
+configMapGenerator:
+  - name: firedoor-dashboard
+    files:
+      - iredoor_dashboard.json=firedoor_dashboard.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+
+commonLabels:
+  grafana_dashboard: "1" 
