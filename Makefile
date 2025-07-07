@@ -90,16 +90,16 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest vendor ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -mod=vendor -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
+test: manifests generate fmt vet envtest ## Run tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
 
 .PHONY: test-short
-test-short: manifests generate fmt vet envtest vendor ## Run tests with short timeout.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -mod=vendor -short -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
+test-short: manifests generate fmt vet envtest ## Run tests with short timeout.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -short -race -coverprofile cover.out -covermode=atomic $$(go list ./... | grep -v /e2e)
 
 .PHONY: test-parallel
-test-parallel: manifests generate fmt vet envtest vendor ## Run tests in parallel.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -mod=vendor -race -coverprofile cover.out -covermode=atomic -parallel 4 $$(go list ./... | grep -v /e2e)
+test-parallel: manifests generate fmt vet envtest ## Run tests in parallel.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -race -coverprofile cover.out -covermode=atomic -parallel 4 $$(go list ./... | grep -v /e2e)
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
