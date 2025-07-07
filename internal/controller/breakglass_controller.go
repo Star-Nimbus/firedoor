@@ -454,7 +454,7 @@ func (r *BreakglassReconciler) handleRecurringPendingBreakglass(ctx context.Cont
 	}
 
 	// Check if it's time to activate
-	if r.recurringManager.ShouldActivateRecurring(bg) {
+	if r.recurringManager.ShouldActivateRecurring(ctx, bg) {
 		// Transition to RecurringActive and grant access
 		if err := r.recurringManager.TransitionToRecurringActive(bg); err != nil {
 			nsKey := telemetry.NamespaceKey(bg)

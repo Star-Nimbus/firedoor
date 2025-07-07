@@ -132,23 +132,57 @@ rbac:
   # Only enable if you understand the security implications.
   privilegeEscalation: false
 
-  # Extra rules granted to the operator. 
+  # List of namespaces where the operator can manage RBAC (Role/RoleBinding). If empty, no namespace restriction is applied.
+  allowedNamespaces: []
+  # Example:
+  # allowedNamespaces:
+  #   - firedoor-system
+
+  # Core rules required for the operator to function
+  # These are the minimum required permissions
+  coreRules:
+    # Watch & update Breakglass resources
+    - apiGroups: [ "access.cloudnimbus.io" ]
+      resources: [ "breakglasses" ]
+      verbs: [ "get", "list", "watch", "create", "update", "patch", "delete" ]
+
+    - apiGroups: [ "access.cloudnimbus.io" ]
+      resources: [ "breakglasses/status", "breakglasses/finalizers" ]
+      verbs: [ "get", "update", "patch" ]
+
+    # Write Events
+    - apiGroups: [ "" ]
+      resources: [ "events" ]
+      verbs: [ "create", "patch" ]
+
+    # Leader election
+    - apiGroups: [ "coordination.k8s.io" ]
+      resources: [ "leases" ]
+      verbs: [ "get", "list", "watch", "create", "update", "patch", "delete" ]
+
+    # Allow the operator to mint / revoke RBAC objects
+    - apiGroups: [ "rbac.authorization.k8s.io" ]
+      resources: [ "roles", "rolebindings", "clusterroles", "clusterrolebindings" ]
+      verbs: [ "get", "list", "watch", "create", "update", "patch", "delete" ]
+
+  # Additional rules granted to the operator
   extraRules:
     # read ConfigMaps cluster-wide
     - apiGroups: [ "" ]
       resources: [ "configmaps" ]
-      verbs:     [ "get", "list", "watch", "create", "update", "patch", "delete" ]
+      verbs: [ "get", "list", "watch", "create", "update", "patch", "delete" ]
 
     # read Pods
     - apiGroups: [ "" ]
       resources: [ "pods" ]
-      verbs:     [ "get", "list", "watch" ]
+      verbs: [ "get", "list", "watch" ]
 
     # read Services
     - apiGroups: [ "" ]
       resources: [ "services" ]
-      verbs:     [ "get", "list", "watch" ]
+      verbs: [ "get", "list", "watch" ]
 
+    # read Deployments
     - apiGroups: [ "apps" ]
       resources: [ "deployments" ]
       verbs: [ "get", "list", "watch" ]

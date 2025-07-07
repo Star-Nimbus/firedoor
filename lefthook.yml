@@ -6,7 +6,6 @@ skip_output:
   - meta
   - success
 
-# Pre-commit hook - runs before each commit
 pre-commit:
   parallel: true
   commands:
@@ -27,8 +26,6 @@ pre-commit:
       glob: "*.go"
       run: make vet
 
-
-
     # Helm chart linting
     helm-lint:
       glob: "**/Chart.yaml"
@@ -38,9 +35,9 @@ pre-commit:
     todo-check:
       glob: "*.{go,yml,yaml,md}"
       run: |
-        if grep -r "TODO\|FIXME" . --exclude-dir={.git,bin,node_modules} --exclude={*.log,*.tmp}; then
-          echo "⚠️  Found TODO/FIXME comments. Consider addressing them before committing."
-          exit 0  # Don't fail the commit, just warn
+        if git diff --cached --name-only | xargs grep -l "TODO\|FIXME" 2>/dev/null; then
+          echo "Found TODO/FIXME comments. Consider addressing them before committing."
+          exit 1
         fi
 
 # Pre-push hook - runs before pushing
@@ -60,21 +57,16 @@ commit-msg:
     # Check commit message format
     commit-message:
       run: |
-        # Get the commit message from git
-        COMMIT_MSG=$(git log -1 --pretty=format:%s)
-        
-        # Check if commit message follows conventional commits format
-        if ! echo "$COMMIT_MSG" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+"; then
-          echo "❌ Commit message should follow conventional commits format:"
-          echo "   <type>(<scope>): <description>"
-          echo "   Examples:"
-          echo "   - feat: add new feature"
-          echo "   - fix(auth): resolve login issue"
-          echo "   - docs: update README"
-          echo "   - chore: update dependencies"
-          echo "   Current message: $COMMIT_MSG"
+        commit_msg=$(cat "$1")
+        if ! echo "$commit_msg" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?: .+"; then
+          echo "Commit message should follow conventional commits format:"
+          echo "  <type>(<scope>): <description>"
+          echo ""
+          echo "Types: feat, fix, docs, style, refactor, test, chore, ci, build, perf, revert"
+          echo "Example: feat(controller): add new breakglass validation"
+          echo ""
+          echo "Current message: $commit_msg"
           exit 1
-        fi
 
 # Post-commit hook - runs after commit
 post-commit:
@@ -82,10 +74,10 @@ post-commit:
     # Show commit summary
     commit-summary:
       run: |
-        echo "✅ Commit successful!"
-        echo "📝 Commit: $(git log -1 --pretty=format:'%h - %s')"
-        echo "👤 Author: $(git log -1 --pretty=format:'%an')"
-        echo "📅 Date: $(git log -1 --pretty=format:'%ad')"
+        echo "Commit successful!"
+        echo "Commit: $(git log -1 --pretty=format:'%h - %s')"
+        echo "Author: $(git log -1 --pretty=format:'%an')"
+        echo "Date: $(git log -1 --pretty=format:'%ad')"
 
 # Post-merge hook - runs after merge
 post-merge:
@@ -93,8 +85,9 @@ post-merge:
     # Update dependencies after merge
     update-deps:
       run: |
-        echo "🔄 Updating dependencies after merge..."
+        echo "Updating dependencies after merge..."
         go mod tidy
+        go mod download
 
 # Post-checkout hook - runs after checkout
 post-checkout:
@@ -102,7 +95,5 @@ post-checkout:
     # Rebuild tools after branch switch
     rebuild-tools:
       run: |
-        echo "🔧 Rebuilding development tools..."
-        make golangci-lint
-        make controller-gen
-        make kustomize 
+        echo "Rebuilding development tools..."
+        make envtest 

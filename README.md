@@ -154,7 +154,7 @@ When privilege escalation is enabled:
 
 ### Security Considerations
 
-⚠️ **Warning**: Privilege escalation mode bypasses Kubernetes RBAC restrictions and should be used carefully:
+**Warning**: Privilege escalation mode bypasses Kubernetes RBAC restrictions and should be used carefully:
 
 - **Limited Scope**: Only enable for specific use cases where elevated permissions are necessary
 - **Monitoring**: Ensure comprehensive logging and monitoring of all breakglass access

@@ -70,6 +70,6 @@ jobs:
 
     - name: Notify
       run: |
-        echo "🚀 Chart release triggered for version ${{ steps.version.outputs.version }}"
-        echo "📊 Charts repository: https://github.com/Star-Nimbus/charts"
-        echo "🔄 Check the charts repository for the release workflow progress" 
+        echo "Chart release triggered for version ${{ steps.version.outputs.version }}"
+        echo "Charts repository: https://github.com/Star-Nimbus/charts"
+        echo "Check the charts repository for the release workflow progress" 

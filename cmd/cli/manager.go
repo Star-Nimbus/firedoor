@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"math/rand"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -81,9 +80,6 @@ func newManagerCmd() *cobra.Command {
 }
 
 func runManager(ctx context.Context, cfg *config.Config) error {
-	// Initialize random seed to avoid identical jitter across controller pods
-	rand.Seed(time.Now().UnixNano())
-
 	var metricsAddr string
 	var probeAddr string
 	var enableLeaderElection bool

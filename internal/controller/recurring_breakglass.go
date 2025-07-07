@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	cron "github.com/robfig/cron/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 	"github.com/cloud-nimbus/firedoor/internal/telemetry"
@@ -77,8 +79,11 @@ func (r *RecurringBreakglassManager) CalculateNextActivation(s string, from time
 
 // ShouldActivateRecurring mutates bg.Status.NextActivationAt if needed and
 // returns true when 'now' ≥ scheduled time (after accounting for missed windows).
-func (r *RecurringBreakglassManager) ShouldActivateRecurring(bg *accessv1alpha1.Breakglass) bool {
+func (r *RecurringBreakglassManager) ShouldActivateRecurring(ctx context.Context, bg *accessv1alpha1.Breakglass) bool {
+	lg := log.FromContext(ctx)
+	lg.V(1).Info("Checking if breakglass should activate", "breakglass", bg.Name)
 	if !r.IsRecurringBreakglass(bg) {
+		lg.Info("Breakglass is not configured for recurring access", "breakglass", bg.Name)
 		return false
 	}
 	now := time.Now().In(r.loc)
@@ -93,7 +98,8 @@ func (r *RecurringBreakglassManager) ShouldActivateRecurring(bg *accessv1alpha1.
 
 	cs, err := r.cronParser.Parse(bg.Spec.RecurrenceSchedule)
 	if err != nil {
-		return false // invalid schedule -> ignore
+		lg.Error(err, "Invalid recurrence schedule", "breakglass", bg.Name)
+		return false
 	}
 	next := bg.Status.NextActivationAt.Time.In(r.loc)
 
