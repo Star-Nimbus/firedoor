@@ -89,16 +89,6 @@ func getApprovalSource(approvedBy string) string {
 	return "human"
 }
 
-func getRoleType(bg *accessv1alpha1.Breakglass) string {
-	if len(bg.Spec.ClusterRoles) > 0 {
-		return "cluster_role"
-	}
-	if bg.Spec.AccessPolicy != nil && len(bg.Spec.AccessPolicy.Rules) > 0 {
-		return "custom"
-	}
-	return "unknown"
-}
-
 // Helper functions to extract values from the new API structure
 func namespaceKey(bg *accessv1alpha1.Breakglass) string {
 	all := getAllNamespaces(bg)
@@ -128,7 +118,6 @@ func RecordGrantAccessStart(ctx context.Context, bg *accessv1alpha1.Breakglass) 
 		attribute.String(AttributeKeyBreakglassName.String(), bg.Name),
 		attribute.String(AttributeKeyBreakglassUID.String(), string(bg.UID)),
 		nsAttr, // All namespaces as bounded array
-		attribute.String(AttributeKeyBreakglassRoleType.String(), getRoleType(bg)),
 		attribute.Int(AttributeKeyBreakglassDurationMinutes.String(), getDurationMinutes(bg)),
 		attribute.Bool(AttributeKeyBreakglassApprovalRequired.String(), bg.Spec.ApprovalRequired),
 		attribute.Bool(AttributeKeyBreakglassRecurring.String(), bg.Spec.Recurring),
@@ -149,7 +138,6 @@ func RecordRevokeAccessStart(ctx context.Context, bg *accessv1alpha1.Breakglass)
 		attribute.String(AttributeKeyBreakglassName.String(), bg.Name),
 		attribute.String(AttributeKeyBreakglassUID.String(), string(bg.UID)),
 		nsAttr, // All namespaces as bounded array
-		attribute.String(AttributeKeyBreakglassRoleType.String(), getRoleType(bg)),
 		attribute.Int(AttributeKeyBreakglassDurationMinutes.String(), getDurationMinutes(bg)),
 		attribute.Bool(AttributeKeyBreakglassApprovalRequired.String(), bg.Spec.ApprovalRequired),
 		attribute.Bool(AttributeKeyBreakglassRecurring.String(), bg.Spec.Recurring),
@@ -191,7 +179,7 @@ func RecordNamespaceOperation(ctx context.Context, operationName, namespace stri
 func RecordGrantAccessSuccess(bg *accessv1alpha1.Breakglass, subjectName string) {
 	// Record state transition to active
 	approvalSource := getApprovalSource(bg.Status.ApprovedBy)
-	roleType := getRoleType(bg)
+	roleType := "breakglass"
 	namespace := namespaceKey(bg)
 
 	RecordStateTransition("active", approvalSource, roleType, 1) // +1 to active gauge
@@ -209,7 +197,7 @@ func RecordGrantAccessSuccess(bg *accessv1alpha1.Breakglass, subjectName string)
 // RecordGrantAccessFailure records failed grant access with new collapsed metrics
 func RecordGrantAccessFailure(bg *accessv1alpha1.Breakglass, reason string) {
 	// Record operation failure
-	roleType := getRoleType(bg)
+	roleType := "breakglass"
 	namespace := namespaceKey(bg)
 
 	RecordOperation(OpCreate, ResultError, ComponentController, roleType, namespace)
@@ -218,7 +206,7 @@ func RecordGrantAccessFailure(bg *accessv1alpha1.Breakglass, reason string) {
 // RecordGrantAccessValidationFailure records validation failure with new collapsed metrics
 func RecordGrantAccessValidationFailure(bg *accessv1alpha1.Breakglass) {
 	// Record validation operation failure
-	roleType := getRoleType(bg)
+	roleType := "breakglass"
 	namespace := namespaceKey(bg)
 
 	RecordOperation(OpValidation, ResultError, ComponentController, roleType, namespace)
@@ -228,7 +216,7 @@ func RecordGrantAccessValidationFailure(bg *accessv1alpha1.Breakglass) {
 func RecordRevokeAccessSuccess(bg *accessv1alpha1.Breakglass) {
 	// Record state transition (decrease active gauge)
 	approvalSource := getApprovalSource(bg.Status.ApprovedBy)
-	roleType := getRoleType(bg)
+	roleType := "breakglass"
 	namespace := namespaceKey(bg)
 
 	RecordStateTransition("revoked", approvalSource, roleType, -1) // -1 from active gauge
@@ -240,7 +228,7 @@ func RecordRevokeAccessSuccess(bg *accessv1alpha1.Breakglass) {
 // RecordRevokeAccessFailure records failed revoke access with new collapsed metrics
 func RecordRevokeAccessFailure(bg *accessv1alpha1.Breakglass) {
 	// Record operation failure
-	roleType := getRoleType(bg)
+	roleType := "breakglass"
 	namespace := namespaceKey(bg)
 
 	RecordOperation(OpRevoke, ResultError, ComponentController, roleType, namespace)

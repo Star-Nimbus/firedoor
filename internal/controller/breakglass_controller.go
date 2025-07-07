@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 	"github.com/cloud-nimbus/firedoor/internal/alerting"
@@ -173,66 +174,67 @@ func isExpired(bg *accessv1alpha1.Breakglass) bool {
 
 // handleNewBreakglass handles a newly created breakglass
 func (r *BreakglassReconciler) handleNewBreakglass(ctx context.Context, bg *accessv1alpha1.Breakglass) (ctrl.Result, error) {
-	// Add finalizer if not present
-	if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
-		controllerutil.AddFinalizer(bg, breakglassFinalizer)
-		if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-			return r.Client.Update(ctx, bg)
-		}); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
-		}
-	}
+	lg := log.FromContext(ctx)
+	lg.V(1).Info("New breakglass resource created",
+		"breakglass", bg.Name,
+		"namespace", bg.Namespace,
+		"recurring", bg.Spec.Recurring,
+		"approvalRequired", bg.Spec.ApprovalRequired,
+		"subjectCount", len(bg.Spec.Subjects),
+		"justification", bg.Spec.Justification)
 
-	// Set initial phase based on whether it's recurring or not
-	if bg.Spec.Recurring {
-		bg.Status.Phase = accessv1alpha1.PhaseRecurringPending
-		// Initialize recurring status
-		if err := r.recurringManager.TransitionToRecurringPending(bg); err != nil {
+	// // Add finalizer if not present
+	// if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
+	// 	lg.Info("Adding finalizer", "finalizer", breakglassFinalizer)
+	// 	controllerutil.AddFinalizer(bg, breakglassFinalizer)
+	// 	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+	// 		return r.Client.Update(ctx, bg)
+	// 	}); err != nil {
+	// 		return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
+	// 	}
+	// }
+
+	// ➊ First-time reconcile: add the finaliser and *return*
+	if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
+		// (a) metadata patch – finaliser only
+		metaPatch := client.MergeFrom(bg.DeepCopy())
+		controllerutil.AddFinalizer(bg, breakglassFinalizer)
+		if err := r.Client.Patch(ctx, bg, metaPatch); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to add finaliser: %w", err)
+		}
+
+		// (b) seed status while we're here so Phase is never empty
+		if err := r.patchStatus(ctx, bg, func() {
+			// brand-new resource ⇒ PhasePending or RecurringPending
+			if bg.Spec.Recurring {
+				bg.Status.Phase = accessv1alpha1.PhaseRecurringPending
+			} else {
+				bg.Status.Phase = accessv1alpha1.PhasePending
+			}
+
+			if !bg.Spec.ApprovalRequired {
+				now := metav1.Now()
+				bg.Status.ApprovedBy = AutoApprover
+				bg.Status.ApprovedAt = &now
+			}
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		// Set recurring pending condition
-		meta.SetStatusCondition(&bg.Status.Conditions, metav1.Condition{
-			Type:               conditions.RecurringPending.String(),
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             conditions.RecurringAccessScheduled.String(),
-			Message:            conditions.RecurringAccessScheduledForActivation.String(),
-		})
-	} else {
-		bg.Status.Phase = accessv1alpha1.PhasePending
-	}
-	bg.Status.ApprovedBy = ""
-	bg.Status.ApprovedAt = nil
 
-	// If approval is not required, auto-approve
-	if !bg.Spec.ApprovalRequired {
-		now := metav1.Now()
-		bg.Status.ApprovedBy = AutoApprover
-		bg.Status.ApprovedAt = &now
+		// Let the next pass finish the workflow with a clean copy
+		return ctrl.Result{Requeue: true}, nil
 	}
-
-	// Single status update with all changes
-	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-		return r.Client.Status().Update(ctx, bg)
-	}); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// If approval is not required, handle based on whether it's recurring or not
-	if !bg.Spec.ApprovalRequired {
-		if bg.Spec.Recurring {
-			return r.handleRecurringPendingBreakglass(ctx, bg)
-		} else {
-			return r.handlePendingBreakglass(ctx, bg)
-		}
-	}
-
-	// If approval is required, wait for manual approval
 	return ctrl.Result{}, nil
 }
 
 // handlePendingBreakglass handles a breakglass in Pending phase
 func (r *BreakglassReconciler) handlePendingBreakglass(ctx context.Context, bg *accessv1alpha1.Breakglass) (ctrl.Result, error) {
+	lg := log.FromContext(ctx)
+	lg.V(1).Info("handlePendingBreakglass",
+		"breakglass", bg.Name,
+		"namespace", bg.Namespace,
+		"phase", bg.Status.Phase,
+		"approvalRequired", bg.Spec.ApprovalRequired)
 	// If approval is required, wait for manual approval
 	if bg.Spec.ApprovalRequired {
 		if !approved(bg) {
@@ -338,6 +340,19 @@ func (r *BreakglassReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// patchStatus updates the Breakglass status with retry logic for conflicts
+func (r *BreakglassReconciler) patchStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, mutate func()) error {
+	return retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+		latest := &accessv1alpha1.Breakglass{}
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(bg), latest); err != nil {
+			return err
+		}
+		mutate()
+		latest.Status = bg.Status
+		return r.Client.Status().Update(ctx, latest)
+	})
+}
+
 // ApproveBreakglass approves a pending breakglass request
 func (r *BreakglassReconciler) ApproveBreakglass(ctx context.Context, bg *accessv1alpha1.Breakglass, approver string) error {
 	if bg.Status.Phase != accessv1alpha1.PhasePending {
@@ -349,20 +364,16 @@ func (r *BreakglassReconciler) ApproveBreakglass(ctx context.Context, bg *access
 	}
 
 	now := metav1.Now()
-	bg.Status.ApprovedBy = approver
-	bg.Status.ApprovedAt = &now
-
-	// Add approval condition
-	meta.SetStatusCondition(&bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Approved.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: now,
-		Reason:             conditions.AccessGranted.String(),
-		Message:            fmt.Sprintf("Approved by %s", approver),
-	})
-
-	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-		return r.Client.Status().Update(ctx, bg)
+	if err := r.patchStatus(ctx, bg, func() {
+		bg.Status.ApprovedBy = approver
+		bg.Status.ApprovedAt = &now
+		meta.SetStatusCondition(&bg.Status.Conditions, metav1.Condition{
+			Type:               conditions.Approved.String(),
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: now,
+			Reason:             conditions.AccessGranted.String(),
+			Message:            fmt.Sprintf("Approved by %s", approver),
+		})
 	}); err != nil {
 		return fmt.Errorf("failed to update breakglass status: %w", err)
 	}
@@ -382,19 +393,15 @@ func (r *BreakglassReconciler) DenyBreakglass(ctx context.Context, bg *accessv1a
 	}
 
 	now := metav1.Now()
-	bg.Status.Phase = accessv1alpha1.PhaseDenied
-
-	// Add denial condition
-	meta.SetStatusCondition(&bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Denied.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: now,
-		Reason:             conditions.AccessDenied.String(),
-		Message:            fmt.Sprintf("Denied by %s: %s", denier, reason),
-	})
-
-	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-		return r.Client.Status().Update(ctx, bg)
+	if err := r.patchStatus(ctx, bg, func() {
+		bg.Status.Phase = accessv1alpha1.PhaseDenied
+		meta.SetStatusCondition(&bg.Status.Conditions, metav1.Condition{
+			Type:               conditions.Denied.String(),
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: now,
+			Reason:             conditions.AccessDenied.String(),
+			Message:            fmt.Sprintf("Denied by %s: %s", denier, reason),
+		})
 	}); err != nil {
 		return fmt.Errorf("failed to update breakglass status: %w", err)
 	}
@@ -415,21 +422,16 @@ func (r *BreakglassReconciler) RevokeBreakglass(ctx context.Context, bg *accessv
 		return fmt.Errorf("failed to revoke access: %w", err)
 	}
 
-	// Update status to revoked
 	now := metav1.Now()
-	bg.Status.Phase = accessv1alpha1.PhaseRevoked
-
-	// Add revocation condition
-	meta.SetStatusCondition(&bg.Status.Conditions, metav1.Condition{
-		Type:               conditions.Revoked.String(),
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: now,
-		Reason:             conditions.AccessRevoked.String(),
-		Message:            fmt.Sprintf("Revoked by %s: %s", revoker, reason),
-	})
-
-	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-		return r.Client.Status().Update(ctx, bg)
+	if err := r.patchStatus(ctx, bg, func() {
+		bg.Status.Phase = accessv1alpha1.PhaseRevoked
+		meta.SetStatusCondition(&bg.Status.Conditions, metav1.Condition{
+			Type:               conditions.Revoked.String(),
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: now,
+			Reason:             conditions.AccessRevoked.String(),
+			Message:            fmt.Sprintf("Revoked by %s: %s", revoker, reason),
+		})
 	}); err != nil {
 		return fmt.Errorf("failed to update breakglass status: %w", err)
 	}
@@ -508,17 +510,18 @@ func (r *BreakglassReconciler) handleRecurringActiveBreakglass(ctx context.Conte
 			telemetry.RecordRecurringBreakglassExpirationWithTelemetry(nsKey, bg.Status.ActivationCount)
 		}
 
-		// Update recurring status and transition back to RecurringPending
-		if err := r.recurringManager.UpdateRecurringStatus(bg); err != nil {
+		// Prepare updated status
+		updated := bg.DeepCopy()
+		if err := r.recurringManager.UpdateRecurringStatus(updated); err != nil {
 			return result, err
 		}
 
-		if err := r.recurringManager.TransitionToRecurringPending(bg); err != nil {
+		if err := r.recurringManager.TransitionToRecurringPending(updated); err != nil {
 			return result, err
 		}
 
-		if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-			return r.Client.Status().Update(ctx, bg)
+		if err := r.patchStatus(ctx, bg, func() {
+			bg.Status = updated.Status
 		}); err != nil {
 			return result, err
 		}
