@@ -97,6 +97,9 @@ var _ = Describe("Breakglass Approval Logic", func() {
 			bg.Spec.ApprovalRequired = false
 			bg.Status.Phase = accessv1alpha1.PhasePending
 
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
+
 			// Should proceed to grant access when approval not required
 			result, err := reconciler.handlePendingBreakglass(ctx, bg)
 			Expect(err).NotTo(HaveOccurred())
@@ -111,6 +114,9 @@ var _ = Describe("Breakglass Approval Logic", func() {
 			bg.Status.ApprovedBy = "admin-user"
 			bg.Status.ApprovedAt = &metav1.Time{Time: time.Now()}
 
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
+
 			// Should proceed to grant access when already approved
 			result, err := reconciler.handlePendingBreakglass(ctx, bg)
 			Expect(err).NotTo(HaveOccurred())
@@ -124,6 +130,9 @@ var _ = Describe("Breakglass Approval Logic", func() {
 			bg.Name = "test-manual-approve"
 			bg.Spec.ApprovalRequired = true
 			bg.Status.Phase = accessv1alpha1.PhasePending
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			err := reconciler.ApproveBreakglass(ctx, bg, "admin-user")
 			Expect(err).NotTo(HaveOccurred())
@@ -175,6 +184,9 @@ var _ = Describe("Breakglass Approval Logic", func() {
 			bg.Spec.ApprovalRequired = true
 			bg.Status.Phase = accessv1alpha1.PhasePending
 
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
+
 			err := reconciler.DenyBreakglass(ctx, bg, "admin-user", "Insufficient justification")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(bg.Status.Phase).To(Equal(accessv1alpha1.PhaseDenied))
@@ -213,6 +225,9 @@ var _ = Describe("Breakglass Approval Logic", func() {
 			bg.Name = "test-manual-revoke"
 			bg.Spec.ApprovalRequired = false
 			bg.Status.Phase = accessv1alpha1.PhaseActive
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			err := reconciler.RevokeBreakglass(ctx, bg, "admin-user", "Security incident")
 			Expect(err).NotTo(HaveOccurred())
@@ -261,11 +276,14 @@ var _ = Describe("Breakglass Approval Logic", func() {
 			bg := baseBreakglass().DeepCopy()
 			bg.Name = "test-new-auto-approve"
 			bg.Spec.ApprovalRequired = false
-			bg.Status.Phase = accessv1alpha1.PhasePending
+			bg.Status.Phase = "" // Empty phase for new breakglass
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			result, err := reconciler.handleNewBreakglass(ctx, bg)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+			Expect(result.Requeue).To(BeTrue()) // Should requeue immediately after initial setup
 		})
 	})
 })

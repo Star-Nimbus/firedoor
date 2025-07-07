@@ -194,8 +194,16 @@ func (r *BreakglassReconciler) handleNewBreakglass(ctx context.Context, bg *acce
 
 		// seed status while we're here so Phase is never empty
 		if err := r.patchStatus(ctx, bg, func() {
+
 			if bg.Spec.Recurring {
 				bg.Status.Phase = accessv1alpha1.PhaseRecurringPending
+				// Initialize recurring status including NextActivationAt
+				if r.recurringManager != nil {
+					if err := r.recurringManager.TransitionToRecurringPending(bg); err != nil {
+						lg.Error(err, "Failed to initialize recurring breakglass", "breakglass", bg.Name)
+						return
+					}
+				}
 			} else {
 				bg.Status.Phase = accessv1alpha1.PhasePending
 			}
