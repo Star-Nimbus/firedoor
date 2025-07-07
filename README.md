@@ -329,6 +329,8 @@ The operator exposes Prometheus metrics on `:8080/metrics`:
 - `firedoor_recurring_breakglass_expiration_total`: Total recurring breakglass expirations
 - `firedoor_recurring_breakglass_active`: Currently active recurring breakglass sessions
 
+Namespace labels are hashed into 16 buckets (`ns_00`..`ns_0f`) to keep metric cardinality low. Use `telemetry.NamespaceBucket()` to compute the bucket for a namespace. See [docs/telemetry.md](docs/telemetry.md) for more details.
+
 ### Tracing
 
 OpenTelemetry tracing can be enabled for observability:
