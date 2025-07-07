@@ -6,7 +6,7 @@ namespace: metrics-system
 configMapGenerator:
   - name: firedoor-dashboard
     files:
-      - iredoor_dashboard.json=firedoor_dashboard.json
+      - firedoor_dashboard.json=firedoor_dashboard.json
     options:
       labels:
         grafana_dashboard: "1"
