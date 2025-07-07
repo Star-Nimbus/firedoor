@@ -248,6 +248,10 @@ func namespaceBucket(ns string) string {
 	return fmt.Sprintf("ns_%02x", h.Sum32()&0x0f)
 }
 
+// NamespaceBucket exposes the namespace bucketing algorithm.
+// It returns a label like "ns_0a" for the provided namespace.
+func NamespaceBucket(ns string) string { return namespaceBucket(ns) }
+
 // ApproverBucket hashes an approver ID/email into 16 buckets (ap_00..ap_0f).
 func ApproverBucket(approver string) string {
 	if approver == "" {
