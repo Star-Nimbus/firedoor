@@ -17,12 +17,17 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/discovery"
 )
 
 // warnError will use the global GINKGO_WRITER to log a warning message.
@@ -88,6 +93,11 @@ func GetProjectDir() (string, error) {
 
 // SkaffoldRun deploys the application using Skaffold with the specified profile
 func SkaffoldRun(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH. Please install skaffold to run e2e tests")
+	}
+
 	cmd := exec.Command("skaffold", "run", "--profile="+profile, "--tail=false")
 	_, err := Run(cmd)
 	return err
@@ -95,6 +105,11 @@ func SkaffoldRun(profile string) error {
 
 // SkaffoldDelete removes the application deployment using Skaffold
 func SkaffoldDelete(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH")
+	}
+
 	cmd := exec.Command("skaffold", "delete", "--profile="+profile)
 	_, err := Run(cmd)
 	return err
@@ -102,6 +117,11 @@ func SkaffoldDelete(profile string) error {
 
 // SkaffoldBuild builds the application using Skaffold without deploying
 func SkaffoldBuild(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH")
+	}
+
 	cmd := exec.Command("skaffold", "build", "--profile="+profile)
 	_, err := Run(cmd)
 	return err
@@ -109,9 +129,20 @@ func SkaffoldBuild(profile string) error {
 
 // SkaffoldDeploy deploys the application using Skaffold (assumes build is already done)
 func SkaffoldDeploy(profile string) error {
+	// Check if skaffold is available
+	if !isSkaffoldAvailable() {
+		return fmt.Errorf("skaffold is not available in PATH")
+	}
+
 	cmd := exec.Command("skaffold", "deploy", "--profile="+profile, "--tail=false")
 	_, err := Run(cmd)
 	return err
+}
+
+// isSkaffoldAvailable checks if skaffold is available in the PATH
+func isSkaffoldAvailable() bool {
+	cmd := exec.Command("skaffold", "version")
+	return cmd.Run() == nil
 }
 
 // CleanupSkaffoldDeployment cleans up Skaffold deployment and any test resources
@@ -123,8 +154,44 @@ func CleanupSkaffoldDeployment(profile string) {
 
 	// Clean up any test resources
 	By("cleaning up test resources")
-	cmd := exec.Command("kubectl", "delete", "breakglass", "--all", "-n", "firedoor-system", "--ignore-not-found=true")
+	cmd := exec.Command("kubectl", "delete", "breakglasses", "--all", "-n", "firedoor-system", "--ignore-not-found=true")
 	if _, err := Run(cmd); err != nil {
 		warnError(fmt.Errorf("failed to clean up test breakglass resources: %w", err))
 	}
+}
+
+// WaitForCRD waits for the breakglass CRD to be available
+func WaitForCRD() error {
+	By("waiting for breakglass CRD to be available")
+	cmd := exec.Command("kubectl", "get", "crd", "breakglasses.access.cloudnimbus.io", "--ignore-not-found=true")
+	_, err := Run(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to check CRD availability: %w", err)
+	}
+
+	// Wait a bit more to ensure the CRD is fully established
+	time.Sleep(5 * time.Second)
+	return nil
+}
+
+// WaitForCRDWithDiscovery waits until the given CRD's discovery doc is visible.
+func WaitForCRDWithDiscovery(ctx context.Context, dc discovery.DiscoveryInterface, gvr schema.GroupVersionResource, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		_, err := dc.ServerResourcesForGroupVersion(gvr.GroupVersion().String())
+		if discovery.IsGroupDiscoveryFailedError(err) || err == nil {
+			// keep going until the specific resource appears
+			resources, _ := dc.ServerResourcesForGroupVersion(gvr.GroupVersion().String())
+			if resources != nil {
+				for _, r := range resources.APIResources {
+					if r.Name == gvr.Resource {
+						fmt.Fprintf(GinkgoWriter, "Found CRD resource: %s\n", r.Name)
+						return true, nil
+					}
+				}
+			}
+			fmt.Fprintf(GinkgoWriter, "Waiting for CRD resource: %s\n", gvr.Resource)
+			return false, nil
+		}
+		return false, err // real error
+	})
 }

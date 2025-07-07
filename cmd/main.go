@@ -20,6 +20,8 @@ import (
 	"github.com/cloud-nimbus/firedoor/cmd/cli"
 )
 
+// main is the entry point for the Firedoor operator application.
+// It initializes and executes the CLI interface.
 func main() {
 	// Execute the CLI
 	cli.Execute()

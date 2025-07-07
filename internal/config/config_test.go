@@ -42,7 +42,7 @@ var _ = Describe("Config", func() {
 				// OpenTelemetry defaults
 				Expect(cfg.OTel.Enabled).To(BeFalse())
 				Expect(cfg.OTel.Exporter).To(Equal("otlp"))
-				Expect(cfg.OTel.Endpoint).To(Equal("http://localhost:4318/v1/traces"))
+				Expect(cfg.OTel.Endpoint).To(Equal("otel-collector-opentelemetry-collector.telemetry-system.svc.cluster.local:4317"))
 				Expect(cfg.OTel.Service).To(Equal("firedoor-operator"))
 
 				// Manager defaults

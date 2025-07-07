@@ -28,3 +28,7 @@ vendor/
 *.swp
 *.swo
 *~
+
+.generated/
+
+bin

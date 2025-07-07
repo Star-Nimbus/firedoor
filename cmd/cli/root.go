@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/cloud-nimbus/firedoor/internal/config"
+	"github.com/cloud-nimbus/firedoor/internal/errors"
 )
 
 const (
@@ -63,7 +64,7 @@ func NewRootCmd() *cobra.Command {
 			var err error
 			cfg, err = config.LoadWithViper(viper.GetViper())
 			if err != nil {
-				return fmt.Errorf("failed to load configuration: %w", err)
+				return fmt.Errorf("%s: %w", errors.ErrLoadConfig, err)
 			}
 			return nil
 		},
@@ -134,6 +135,7 @@ func addPersistentFlags(cmd *cobra.Command) {
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
+// This is the main entry point for the CLI application.
 func Execute() {
 	rootCmd := NewRootCmd()
 	if err := rootCmd.Execute(); err != nil {
@@ -142,7 +144,9 @@ func Execute() {
 	}
 }
 
-// GetConfig returns the loaded configuration
+// GetConfig returns the loaded configuration.
+// This function provides access to the global configuration that was loaded
+// during CLI initialization.
 func GetConfig() *config.Config {
 	return cfg
 }

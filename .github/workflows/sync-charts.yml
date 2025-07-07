@@ -4,19 +4,19 @@ on:
   push:
     branches: [ main, develop ]
     paths:
-      - 'config/chart/**'
+      - 'charts/firedoor/**'
       - 'api/v1alpha1/**'
-      - 'config/crd/**'
-      - 'config/rbac/**'
-      - 'config/manager/**'
+      - 'kustomize/crd/**'
+      - 'kustomize/rbac/**'
+      - 'kustomize/manager/**'
   pull_request:
     branches: [ main ]
     paths:
-      - 'config/chart/**'
+      - 'charts/firedoor/**'
       - 'api/v1alpha1/**'
-      - 'config/crd/**'
-      - 'config/rbac/**'
-      - 'config/manager/**'
+      - 'kustomize/crd/**'
+      - 'kustomize/rbac/**'
+      - 'kustomize/manager/**'
   workflow_dispatch:
 
 jobs:
@@ -71,25 +71,25 @@ jobs:
         cd firedoor
         
         # Generate CRDs
-        if [ -d "config/crd" ]; then
-          kustomize build config/crd > ../temp-manifests/crds.yaml
+        if [ -d "kustomize/crd" ]; then
+          kustomize build kustomize/crd > ../temp-manifests/crds.yaml
         fi
         
         # Generate RBAC
-        if [ -d "config/rbac" ]; then
-          kustomize build config/rbac > ../temp-manifests/rbac.yaml
+        if [ -d "kustomize/rbac" ]; then
+          kustomize build kustomize/rbac > ../temp-manifests/rbac.yaml
         fi
         
         # Generate base manifests
-        if [ -d "config/default" ]; then
-          kustomize build config/default > ../temp-manifests/base.yaml
+        if [ -d "kustomize/default" ]; then
+          kustomize build kustomize/default > ../temp-manifests/base.yaml
         fi
 
     - name: Update Helm chart templates
       run: |
         # Copy charts from firedoor to charts repo
-        if [ -d "firedoor/config/chart" ]; then
-          cp -r firedoor/config/chart/* charts/
+        if [ -d "charts/firedoor" ]; then
+          cp -r charts/firedoor/* charts/
         fi
         
         # Update CRD template in operator chart
