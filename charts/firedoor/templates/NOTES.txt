@@ -1,0 +1,25 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Check the operator logs:
+   $ kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name=firedoor
+
+2. Verify RBAC permissions:
+   $ kubectl auth can-i create breakglass --namespace default
+
+3. Check CRD installation:
+   $ kubectl get crd breakglasses.access.cloudnimbus.io
+
+4. Review the operator status:
+   $ kubectl describe deployment firedoor-controller-manager -n {{ .Release.Namespace }}
+
