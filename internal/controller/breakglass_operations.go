@@ -52,17 +52,6 @@ func NewBreakglassOperator(client client.Client, recorder record.EventRecorder, 
 // errNoRequeue is a sentinel error type for permanent failures that should not be requeued
 var errNoRequeue = fmt.Errorf("permanent failure - do not requeue")
 
-// newCondition creates a new condition with consistent formatting
-func newCondition(typ, reason, msg string, status metav1.ConditionStatus) metav1.Condition {
-	return metav1.Condition{
-		Type:               typ,
-		Status:             status,
-		LastTransitionTime: metav1.Now(),
-		Reason:             reason,
-		Message:            msg,
-	}
-}
-
 // upsert creates or updates an object using controllerutil.CreateOrUpdate
 func (o *breakglassOperator) upsert(ctx context.Context, obj client.Object, mutate func() error) error {
 	_, err := controllerutil.CreateOrUpdate(ctx, o.client, obj, mutate)

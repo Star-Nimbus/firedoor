@@ -151,8 +151,6 @@ profiles:
       # remove tempo
       - op: remove
         path: /deploy/helm/releases/1
-      - op: remove
-        path: /portForward/2
   - name: dev
     patches:
       - op: replace
