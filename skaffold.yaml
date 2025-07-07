@@ -37,7 +37,6 @@ build:
         env:
           - CGO_ENABLED=0
 deploy:
-  kubectl: {}
   helm:
     releases:
       - name: monitoring
@@ -139,7 +138,12 @@ profiles:
       kustomize:
         paths:
           - kustomize/tempo
+          - kustomize/grafana-dashboard
   - name: metrics
+    manifests:
+      kustomize:
+        paths:
+          - kustomize/grafana-dashboard
     patches:
       - op: replace
         path: /deploy/helm/releases/3/valuesFiles/0
@@ -150,6 +154,7 @@ profiles:
       # remove tempo
       - op: remove
         path: /deploy/helm/releases/1
+
   - name: dev
     patches:
       - op: replace
