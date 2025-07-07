@@ -40,18 +40,88 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
+        cache: true
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          firedoor/go.sum
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('firedoor/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Cache Helm
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/share/helm
+        key: ${{ runner.os }}-helm-${{ hashFiles('firedoor/charts/firedoor/Chart.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-helm-
+
+    - name: Cache yq
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/yq
+        key: ${{ runner.os }}-yq-v4.40.5
+        restore-keys: |
+          ${{ runner.os }}-yq-
 
     - name: Install yq
       run: |
-        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-        sudo chmod +x /usr/local/bin/yq
+        if [ ! -f /usr/local/bin/yq ]; then
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+        fi
+
+    - name: Cache controller-gen
+      uses: actions/cache@v4
+      with:
+        path: ~/go/bin/controller-gen
+        key: ${{ runner.os }}-controller-gen-${{ hashFiles('firedoor/go.mod') }}
+        restore-keys: |
+          ${{ runner.os }}-controller-gen-
 
     - name: Install controller-gen
       run: |
+        if [ ! -f ~/go/bin/controller-gen ]; then
+          cd firedoor
+          go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+        fi
+
+    - name: Calculate charts hash
+      id: charts-hash
+      run: |
         cd firedoor
-        go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+        # Calculate hash of charts directory and related files
+        CHARTS_HASH=$(find charts/firedoor api/v1alpha1 -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
+        echo "charts_hash=$CHARTS_HASH" >> $GITHUB_OUTPUT
+        echo "Calculated charts hash: $CHARTS_HASH"
+
+    - name: Check if charts have changed
+      id: check-changes
+      run: |
+        # Check if we have a cached hash file in the charts repo
+        if [ -f "charts/.last-sync-hash" ]; then
+          CACHED_HASH=$(cat charts/.last-sync-hash)
+          CURRENT_HASH="${{ steps.charts-hash.outputs.charts_hash }}"
+          
+          if [ "$CACHED_HASH" = "$CURRENT_HASH" ]; then
+            echo "No changes detected in charts, skipping sync"
+            echo "skip_sync=true" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in charts, proceeding with sync"
+            echo "skip_sync=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "No cached hash found, proceeding with sync"
+          echo "skip_sync=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Generate CRDs and manifests
+      if: steps.check-changes.outputs.skip_sync != 'true'
       run: |
         cd firedoor
         if [ -f "Makefile" ]; then
@@ -61,6 +131,7 @@ jobs:
         fi
 
     - name: Validate source charts directory
+      if: steps.check-changes.outputs.skip_sync != 'true'
       run: |
         if [ ! -d "firedoor/charts/firedoor" ]; then
           echo "❌ Source charts directory not found: firedoor/charts/firedoor"
@@ -69,6 +140,7 @@ jobs:
         echo "✅ Source charts directory found"
 
     - name: Copy synced charts to target repo
+      if: steps.check-changes.outputs.skip_sync != 'true'
       run: |
         # Clean and copy charts
         rm -rf charts/firedoor
@@ -77,6 +149,7 @@ jobs:
 
     - name: Determine version strategy
       id: version
+      if: steps.check-changes.outputs.skip_sync != 'true'
       run: |
         cd charts/firedoor
         
@@ -137,6 +210,7 @@ jobs:
         echo "source_version=$SOURCE_VERSION" >> $GITHUB_OUTPUT
 
     - name: Update chart versions
+      if: steps.check-changes.outputs.skip_sync != 'true'
       run: |
         cd charts/firedoor
         
@@ -154,8 +228,11 @@ jobs:
         echo "Strategy: ${{ steps.version.outputs.version_strategy }}"
 
     - name: Install Helm and validate charts
+      if: steps.check-changes.outputs.skip_sync != 'true'
       run: |
-        curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        if ! command -v helm &> /dev/null; then
+          curl -sSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        fi
         
         cd charts/firedoor
         
@@ -182,6 +259,7 @@ jobs:
 
     - name: Create Pull Request
       id: create-pr
+      if: steps.check-changes.outputs.skip_sync != 'true'
       uses: peter-evans/create-pull-request@v5
       with:
         token: ${{ steps.auth.outputs.token }}
@@ -231,15 +309,29 @@ jobs:
             labels: ['automated', 'sync', 'firedoor']
           });
 
+    - name: Update sync hash cache
+      if: steps.check-changes.outputs.skip_sync != 'true' && success()
+      run: |
+        # Save the current hash for future comparisons
+        echo "${{ steps.charts-hash.outputs.charts_hash }}" > charts/.last-sync-hash
+        echo "Updated sync hash cache"
+
     - name: Notify on success
       if: success()
       run: |
-        echo "✅ Charts successfully synced to charts repository"
-        echo "Repository: https://github.com/Star-Nimbus/charts"
-        echo "Triggered by: PR #${{ github.event.pull_request.number }} merge"
-        echo "Version: ${{ steps.version.outputs.source_version }} → ${{ steps.version.outputs.new_version }}"
-        if [ -n "${{ steps.create-pr.outputs.pull-request-url }}" ]; then
-          echo "Pull Request: ${{ steps.create-pr.outputs.pull-request-url }}"
+        if [ "${{ steps.check-changes.outputs.skip_sync }}" = "true" ]; then
+          echo "✅ No changes detected in charts, sync skipped"
+          echo "Repository: https://github.com/Star-Nimbus/charts"
+          echo "Triggered by: PR #${{ github.event.pull_request.number }} merge"
+          echo "Reason: Charts content unchanged"
+        else
+          echo "✅ Charts successfully synced to charts repository"
+          echo "Repository: https://github.com/Star-Nimbus/charts"
+          echo "Triggered by: PR #${{ github.event.pull_request.number }} merge"
+          echo "Version: ${{ steps.version.outputs.source_version }} → ${{ steps.version.outputs.new_version }}"
+          if [ -n "${{ steps.create-pr.outputs.pull-request-url }}" ]; then
+            echo "Pull Request: ${{ steps.create-pr.outputs.pull-request-url }}"
+          fi
         fi
 
     - name: Notify on failure

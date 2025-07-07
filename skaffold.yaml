@@ -135,6 +135,10 @@ profiles:
             env:
               - CGO_ENABLED=0
   - name: telemetry
+    manifests:
+      kustomize:
+        paths:
+          - kustomize/tempo
   - name: metrics
     patches:
       - op: replace

@@ -135,7 +135,7 @@ ingester:
     # -- Enable autoscaling for the ingester. WARNING: Autoscaling ingesters can result in lost data. Only do this if you know what you're doing.
     enabled: false
     # -- Minimum autoscaling replicas for the ingester
-    minReplicas: 2
+    minReplicas: 1
     # -- Maximum autoscaling replicas for the ingester
     maxreplicas: 1
     # -- Autoscaling behavior configuration for the ingester
@@ -166,7 +166,14 @@ ingester:
   # -- Environment variables from secrets or configmaps to add to the ingester pods
   extraEnvFrom: []
   # -- Resource requests and limits for the ingester
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: 200m
+      memory: 2Gi
+
   # -- Grace period to allow the ingester to shutdown before it is killed. Especially for the ingestor,
   # this must be increased. It must be long enough so ingesters can be gracefully shutdown flushing/transferring
   # all data and to successfully leave the member ring on shutdown.
@@ -479,7 +486,7 @@ metricsGenerator:
 # Configuration for the distributor
 distributor:
   # -- Number of replicas for the distributor
-  replicas: 2
+  replicas: 1
   # -- hostAliases to add
   hostAliases: []
   #  - ip: 1.2.3.4
@@ -544,7 +551,13 @@ distributor:
   # -- Containers to add to the distributor pod
   extraContainers: []
   # -- Resource requests and limits for the distributor
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: 200m
+      memory: 2Gi
   # -- Grace period to allow the distributor to shutdown before it is killed
   terminationGracePeriodSeconds: 30
   # -- topologySpread for distributor pods. Passed through `tpl` and, thus, to be configured as string
@@ -697,7 +710,13 @@ compactor:
   # -- Containers to add to the compactor pod
   extraContainers: []
   # -- Resource requests and limits for the compactor
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: 200m
+      memory: 2Gi
   # -- Grace period to allow the compactor to shutdown before it is killed
   terminationGracePeriodSeconds: 30
   # -- Pod Disruption Budget maxUnavailable
@@ -790,7 +809,13 @@ querier:
   # -- Environment variables from secrets or configmaps to add to the querier pods
   extraEnvFrom: []
   # -- Resource requests and limits for the querier
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: 200m
+      memory: 2Gi
   # -- Grace period to allow the querier to shutdown before it is killed
   terminationGracePeriodSeconds: 30
   # -- topologySpread for querier pods. Passed through `tpl` and, thus, to be configured as string
@@ -873,7 +898,13 @@ queryFrontend:
       # -- Docker image tag for the tempo-query image. Overrides `tempo.image.tag`
       tag: null
     # -- Resource requests and limits for the query
-    resources: {}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 1Gi
+      limits:
+        cpu: 200m
+        memory: 2Gi
     # -- Additional CLI args for tempo-query pods
     extraArgs: []
     # -- Environment variables to add to the tempo-query pods
@@ -955,11 +986,18 @@ queryFrontend:
   service:
     # -- Port of the query-frontend service
     port: 16686
+    ports:
+      - name: grpc
+        port: 9095
+        targetPort: 9095
+      - name: http
+        port: 16686
+        targetPort: 16686
     # -- Annotations for queryFrontend service
     annotations: {}
     # -- Labels for queryFrontend service
     labels: {}
-    # -- Type of service for the queryFrontend
+    # -- Type of service for queryFrontend
     type: ClusterIP
     # -- If type is LoadBalancer you can assign the IP to the LoadBalancer
     loadBalancerIP: ""
@@ -1677,7 +1715,14 @@ memcached:
   # -- Annotations for memcached pods
   podAnnotations: {}
   # -- Resource requests and limits for memcached
-  resources: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 100m
+      memory: 256Mi
+
   # -- topologySpread for memcached pods. Passed through `tpl` and, thus, to be configured as string
   # @default -- Defaults to allow skew no more than 1 node per AZ
   topologySpreadConstraints: |
