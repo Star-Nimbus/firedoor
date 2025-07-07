@@ -1,0 +1,46 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: weekend-maintenance-access
+  namespace: firedoor-system
+spec:
+  approvalRequired: true
+  duration: 4h
+  justification: "Weekend maintenance access for infrastructure team"
+  recurring: true
+  
+  # Cron expression for weekends (Saturday and Sunday at 2 AM UTC)
+  # Format: "minute hour day month weekday timezone"
+  recurrenceSchedule: "0 2 * * 6,0 UTC"
+  
+  subjects:
+    - kind: Group
+      name: "infrastructure-team"
+    - kind: Group
+      name: "oncall-engineers"
+  
+  accessPolicy:
+    rules:
+      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
+        apiGroups: [""]
+        namespaces: ["default", "monitoring", "logging", "infrastructure"]
+      
+      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+        apiGroups: ["apps"]
+        namespaces: ["default", "monitoring", "infrastructure"]
+      
+      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        resources: ["persistentvolumeclaims", "persistentvolumes"]
+        apiGroups: [""]
+        namespaces: ["default", "monitoring", "infrastructure"]
+      
+      - actions: ["get", "list", "watch"]
+        resources: ["nodes", "namespaces"]
+        apiGroups: [""]
+      
+      - actions: ["get", "list", "watch"]
+        resources: ["events"]
+        apiGroups: [""]
+        namespaces: ["default", "monitoring", "logging", "infrastructure"] 

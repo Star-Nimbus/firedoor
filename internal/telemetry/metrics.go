@@ -29,11 +29,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// -----------------------------------------------------------------------------
-//
-//	Metric names (Prometheus snake_case, base unit in suffix)
-//
-// -----------------------------------------------------------------------------
+// Metric names
 const (
 	MetricBreakglassStateTotal        = "firedoor_breakglass_state_total"                // counter
 	MetricBreakglassActive            = "firedoor_breakglass_active"                     // gauge
@@ -52,14 +48,10 @@ const (
 	MetricAlertSendErrors   = "firedoor_alert_send_errors_total"
 )
 
-// -----------------------------------------------------------------------------
-//
-//	Label names – ALL BOUNDED ENUMS
-//
-// -----------------------------------------------------------------------------
+// Label names – ALL BOUNDED ENUMS
 const (
 	// state_total
-	LPhase          = "phase"           // pending|active|expired|denied|revoked|recurring_pending|recurring_active
+	LPhase          = "phase"           // pending|active|expired|denied|failed|revoked|recurring_pending|recurring_active
 	LApprovalSource = "approval_source" // human|auto
 	LRoleType       = "role_type"       // cluster_role|custom|unknown
 

@@ -6,6 +6,8 @@ metadata:
 spec:
   # Duration of the breakglass access
   duration: 1m
+  approvalRequired: true
+
   
   # Justification for the breakglass access
   justification: "Emergency cluster access using existing ClusterRoles"

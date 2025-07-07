@@ -14,6 +14,8 @@ const (
 	Expired Condition = "Expired"
 	// Revoked indicates the breakglass access has been revoked
 	Revoked Condition = "Revoked"
+	// Failed indicates the breakglass request has failed
+	Failed Condition = "Failed"
 	// RecurringPending indicates the recurring breakglass is pending next activation
 	RecurringPending Condition = "RecurringPending"
 	// RecurringActive indicates the recurring breakglass access is currently active

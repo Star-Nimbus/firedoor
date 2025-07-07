@@ -138,6 +138,7 @@ const (
 	PhaseActive  BreakglassPhase = "Active"  // Access is approved/granted and currently active.
 	PhaseExpired BreakglassPhase = "Expired" // Access duration ended naturally.
 	PhaseDenied  BreakglassPhase = "Denied"  // Request was denied by an approver.
+	PhaseFailed  BreakglassPhase = "Failed"  // Request failed during processing.
 	PhaseRevoked BreakglassPhase = "Revoked" // Access was manually revoked before expiry.
 	// Recurring phases
 	PhaseRecurringPending BreakglassPhase = "RecurringPending" // Recurring request is pending next activation.
@@ -146,7 +147,7 @@ const (
 
 // BreakglassStatus defines the observed state of Breakglass (set by the operator).
 type BreakglassStatus struct {
-	// Phase is the current state of the request (Pending, Active, Expired, Denied, or Revoked).
+	// Phase is the current state of the request (Pending, Active, Expired, Denied, Failed or Revoked).
 	Phase BreakglassPhase `json:"phase,omitempty"`
 	// ApprovedAt is the timestamp when the request was approved. Nil if not yet approved or if auto-approved.
 	// +optional

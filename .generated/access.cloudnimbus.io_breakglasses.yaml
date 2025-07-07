@@ -287,7 +287,7 @@ spec:
                 type: string
               phase:
                 description: Phase is the current state of the request (Pending, Active,
-                  Expired, Denied, or Revoked).
+                  Expired, Denied, Failed or Revoked).
                 type: string
             type: object
         type: object

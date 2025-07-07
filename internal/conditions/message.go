@@ -12,6 +12,8 @@ const (
 	BreakglassAccessExpiredAndRevoked Message = "Breakglass access expired and revoked"
 	// AccessIsNoLongerActive indicates the access is no longer active
 	AccessIsNoLongerActive Message = "Access is no longer active"
+	// RBACCreationFailed indicates the RBAC creation failed
+	RBACCreationFailedMessage Message = "RBAC creation failed"
 	// RecurringAccessPendingNextActivation indicates recurring access is pending next activation
 	RecurringAccessPendingNextActivation Message = "Recurring access is pending next activation"
 	// RecurringAccessCurrentlyActive indicates recurring access is currently active

@@ -138,6 +138,12 @@ func (o *breakglassOperator) GrantAccess(ctx context.Context, bg *accessv1alpha1
 
 	// Create RBAC resources based on the breakglass spec
 	if err := o.createRBACResources(ctx, bg, subjects); err != nil {
+		o.setFailedStatus(ctx, bg, err)
+		o.emitEvent(bg, corev1.EventTypeWarning, "FailedToGrantAccess", fmt.Sprintf("Failed to create RBAC resources: %v", err))
+		if apierrors.IsForbidden(err) || apierrors.IsInvalid(err) {
+			lg.Error(err, "Permanent failure - do not requeue")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -479,6 +485,24 @@ func (o *breakglassOperator) convertAccessRuleToPolicyRule(accessRule accessv1al
 		Resources:     accessRule.Resources,
 		ResourceNames: accessRule.ResourceNames,
 	}
+}
+
+// setFailedStatus sets the failed status and conditions
+func (o *breakglassOperator) setFailedStatus(ctx context.Context, bg *accessv1alpha1.Breakglass, err error) {
+	if err := o.patchStatus(ctx, bg, func(latest *accessv1alpha1.Breakglass) {
+		latest.Status.Phase = accessv1alpha1.PhaseFailed
+		o.createCondition(latest, conditions.Failed, metav1.ConditionTrue, conditions.RBACCreationFailed, fmt.Sprintf("Failed to grant access: %v", err))
+	}); err != nil {
+		telemetry.RecordStatusUpdateError("update")
+	}
+
+	// Record telemetry for failed state
+	approvalSource := "auto"
+	if bg.Status.ApprovedBy != "" && bg.Status.ApprovedBy != telemetry.AutoApprover {
+		approvalSource = "human"
+	}
+	roleType := "breakglass"
+	telemetry.RecordStateTransition("failed", approvalSource, roleType, 0) // No change to active gauge
 }
 
 // setDeniedStatus sets the denied status and conditions

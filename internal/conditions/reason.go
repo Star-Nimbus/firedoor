@@ -20,6 +20,8 @@ const (
 	RoleBindingFailed Reason = "RoleBindingFailed"
 	// RevokeFailed indicates the revocation operation failed
 	RevokeFailed Reason = "RevokeFailed"
+	// RBACCreationFailed indicates the RBAC creation failed
+	RBACCreationFailed Reason = "RBACCreationFailed"
 	// RecurringAccessPending indicates recurring access is pending next activation
 	RecurringAccessPending Reason = "RecurringAccessPending"
 	// RecurringAccessActive indicates recurring access is currently active

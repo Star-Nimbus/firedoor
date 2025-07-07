@@ -1,0 +1,220 @@
+apiVersion: v1
+items:
+- apiVersion: access.cloudnimbus.io/v1alpha1
+  kind: Breakglass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"access.cloudnimbus.io/v1alpha1","kind":"Breakglass","metadata":{"annotations":{},"name":"clusterrole-breakglass","namespace":"firedoor-system"},"spec":{"approvalRequired":true,"clusterRoles":["view","edit","admin"],"duration":"1m","justification":"Emergency cluster access using existing ClusterRoles","subjects":[{"kind":"User","name":"admin@example.com"},{"kind":"Group","name":"cluster-admins"}]}}
+    creationTimestamp: "2025-07-07T17:00:56Z"
+    finalizers:
+    - breakglass.firedoor.cloudnimbus.io/finalizer
+    generation: 1
+    name: clusterrole-breakglass
+    namespace: firedoor-system
+    resourceVersion: "29407"
+    uid: 24f3f51f-1728-4e0d-9605-2064f552e184
+  spec:
+    approvalRequired: true
+    clusterRoles:
+    - view
+    - edit
+    - admin
+    duration: 1m
+    justification: Emergency cluster access using existing ClusterRoles
+    subjects:
+    - kind: User
+      name: admin@example.com
+    - kind: Group
+      name: cluster-admins
+  status:
+    phase: Pending
+- apiVersion: access.cloudnimbus.io/v1alpha1
+  kind: Breakglass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"access.cloudnimbus.io/v1alpha1","kind":"Breakglass","metadata":{"annotations":{},"name":"example-breakglass","namespace":"firedoor-system"},"spec":{"accessPolicy":{"rules":[{"actions":["get","list","watch"],"apiGroups":[""],"namespaces":["default"],"resources":["pods"]},{"actions":["get","list"],"apiGroups":[""],"namespaces":["default","kube-system"],"resources":["services"]},{"actions":["get","list","create","update","patch","delete"],"apiGroups":[""],"namespaces":["default"],"resourceNames":["app-config","debug-config"],"resources":["configmaps"]}]},"approvalRequired":false,"duration":"30m","justification":"Emergency access for debugging production issue","subjects":[{"kind":"User","name":"mail@matthewmcleod.co.uk"},{"kind":"Group","name":"developers"}]}}
+    creationTimestamp: "2025-07-07T16:53:27Z"
+    finalizers:
+    - breakglass.firedoor.cloudnimbus.io/finalizer
+    generation: 1
+    name: example-breakglass
+    namespace: firedoor-system
+    resourceVersion: "28573"
+    uid: 2e2e7b55-62d9-43e4-8976-a862b068a1ee
+  spec:
+    accessPolicy:
+      rules:
+      - actions:
+        - get
+        - list
+        - watch
+        apiGroups:
+        - ""
+        namespaces:
+        - default
+        resources:
+        - pods
+      - actions:
+        - get
+        - list
+        apiGroups:
+        - ""
+        namespaces:
+        - default
+        - kube-system
+        resources:
+        - services
+      - actions:
+        - get
+        - list
+        - create
+        - update
+        - patch
+        - delete
+        apiGroups:
+        - ""
+        namespaces:
+        - default
+        resourceNames:
+        - app-config
+        - debug-config
+        resources:
+        - configmaps
+    approvalRequired: false
+    duration: 30m
+    justification: Emergency access for debugging production issue
+    subjects:
+    - kind: User
+      name: mail@matthewmcleod.co.uk
+    - kind: Group
+      name: developers
+  status:
+    approvedAt: "2025-07-07T16:53:27Z"
+    approvedBy: system-auto-approve
+    conditions:
+    - lastTransitionTime: "2025-07-07T16:53:27Z"
+      message: Breakglass access granted to 2 subjects until 2025-07-07T17:23:27Z
+      observedGeneration: 1
+      reason: AccessGranted
+      status: "True"
+      type: Approved
+    - lastTransitionTime: "2025-07-07T16:53:27Z"
+      message: Breakglass access is active until 2025-07-07T17:23:27Z
+      observedGeneration: 1
+      reason: AccessActive
+      status: "True"
+      type: Active
+    - lastTransitionTime: "2025-07-07T16:53:27Z"
+      message: Access has been granted
+      observedGeneration: 1
+      reason: AccessGranted
+      status: "False"
+      type: Denied
+    expiresAt: "2025-07-07T17:23:27Z"
+    grantedAt: "2025-07-07T16:53:27Z"
+    phase: Active
+- apiVersion: access.cloudnimbus.io/v1alpha1
+  kind: Breakglass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"access.cloudnimbus.io/v1alpha1","kind":"Breakglass","metadata":{"annotations":{},"name":"privilege-escalation-example","namespace":"firedoor-system"},"spec":{"accessPolicy":{"rules":[{"actions":["get","list","watch"],"apiGroups":[""],"resources":["nodes"]},{"actions":["get","list","watch","create","update","patch","delete"],"apiGroups":[""],"resources":["persistentvolumes"]},{"actions":["get","list","watch","create","update","patch","delete"],"apiGroups":["storage.k8s.io"],"resources":["storageclasses"]},{"actions":["get","list","watch","create","update","patch","delete"],"apiGroups":["custom.example.com"],"resources":["customresources"]}]},"approvalRequired":false,"duration":"1m","justification":"Example using privilege escalation mode - operator can grant permissions it doesn't hold","subjects":[{"kind":"User","name":"admin@example.com"}]}}
+    creationTimestamp: "2025-07-07T17:01:44Z"
+    finalizers:
+    - breakglass.firedoor.cloudnimbus.io/finalizer
+    generation: 1
+    name: privilege-escalation-example
+    namespace: firedoor-system
+    resourceVersion: "29500"
+    uid: 2d30cb70-7988-456b-8762-3e9610f5e7fc
+  spec:
+    accessPolicy:
+      rules:
+      - actions:
+        - get
+        - list
+        - watch
+        apiGroups:
+        - ""
+        resources:
+        - nodes
+      - actions:
+        - get
+        - list
+        - watch
+        - create
+        - update
+        - patch
+        - delete
+        apiGroups:
+        - ""
+        resources:
+        - persistentvolumes
+      - actions:
+        - get
+        - list
+        - watch
+        - create
+        - update
+        - patch
+        - delete
+        apiGroups:
+        - storage.k8s.io
+        resources:
+        - storageclasses
+      - actions:
+        - get
+        - list
+        - watch
+        - create
+        - update
+        - patch
+        - delete
+        apiGroups:
+        - custom.example.com
+        resources:
+        - customresources
+    approvalRequired: false
+    duration: 1m
+    justification: Example using privilege escalation mode - operator can grant permissions
+      it doesn't hold
+    subjects:
+    - kind: User
+      name: admin@example.com
+  status:
+    approvedAt: "2025-07-07T17:01:44Z"
+    approvedBy: system-auto-approve
+    phase: Pending
+- apiVersion: access.cloudnimbus.io/v1alpha1
+  kind: Breakglass
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"access.cloudnimbus.io/v1alpha1","kind":"Breakglass","metadata":{"annotations":{},"name":"simple-breakglass","namespace":"firedoor-system"},"spec":{"approvalRequired":false,"clusterRoles":["view","edit"],"duration":"1m","justification":"Simple test using existing ClusterRoles","subjects":[{"kind":"User","name":"test.user@example.com"}]}}
+    creationTimestamp: "2025-07-07T16:56:29Z"
+    finalizers:
+    - breakglass.firedoor.cloudnimbus.io/finalizer
+    generation: 1
+    name: simple-breakglass
+    namespace: firedoor-system
+    resourceVersion: "28912"
+    uid: 9f17444d-8304-4033-9a19-c1efd868535d
+  spec:
+    approvalRequired: false
+    clusterRoles:
+    - view
+    - edit
+    duration: 1m
+    justification: Simple test using existing ClusterRoles
+    subjects:
+    - kind: User
+      name: test.user@example.com
+  status:
+    approvedAt: "2025-07-07T16:56:29Z"
+    approvedBy: system-auto-approve
+    phase: Pending
+kind: List
+metadata:
+  resourceVersion: ""

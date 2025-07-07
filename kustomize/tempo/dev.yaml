@@ -602,6 +602,22 @@ distributor:
   extraVolumeMounts: []
   # -- Extra volumes for distributor deployment
   extraVolumes: []
+  
+  # -- Default ports for the distributor
+  ports:
+    - name: grpc
+      port: 9095
+      service: true
+    - name: otlp-grpc
+      port: 4317
+      service: true
+    - name: otlp-http
+      port: 4318
+      service: true
+    - name: http-metrics
+      port: 3200
+      service: true
+  
   config:
     # -- Enable to log every received trace id to help debug ingestion
     # -- WARNING: Deprecated. Use log_received_spans instead.

@@ -1,0 +1,51 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: recurring-debug-access
+  namespace: firedoor-system
+spec:
+  approvalRequired: false
+  duration: 8h
+  justification: "Recurring access for development team during business hours"
+  recurring: true
+  
+  # Cron expression for business hours (9 AM - 5 PM, Monday-Friday, Eastern Time)
+  # Format: "minute hour day month weekday timezone"
+  recurrenceSchedule: "0 9 * * 1-5 America/New_York"
+  
+  subjects:
+    - kind: User
+      name: "mail@matthewmcleod.co.uk"
+    - kind: Group
+      name: "developers"
+    - kind: Group
+      name: "sre-team"
+  
+  accessPolicy:
+    rules:
+      - actions: ["get", "list", "watch"]
+        resources: ["pods", "services", "endpoints"]
+        apiGroups: [""]
+        namespaces: ["default", "monitoring", "logging"]
+      
+      - actions: ["get", "list", "watch"]
+        resources: ["deployments", "replicasets", "statefulsets"]
+        apiGroups: ["apps"]
+        namespaces: ["default", "monitoring"]
+      
+      - actions: ["get", "list"]
+        resources: ["events"]
+        apiGroups: [""]
+        namespaces: ["default", "monitoring", "logging"]
+      
+      - actions: ["get", "list", "create", "update", "patch"]
+        resources: ["configmaps"]
+        apiGroups: [""]
+        namespaces: ["default"]
+        resourceNames: ["app-config", "debug-config", "feature-flags"]
+      
+      - actions: ["get", "list"]
+        resources: ["secrets"]
+        apiGroups: [""]
+        namespaces: ["default"]
+        resourceNames: ["app-secrets", "api-keys"] 
