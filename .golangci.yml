@@ -1,7 +1,7 @@
 run:
   timeout: 5m
   allow-parallel-runners: true
-  modules-download-mode: vendor
+  modules-download-mode: readonly
   issues-exit-code: 1
   tests: false              
 
@@ -15,7 +15,6 @@ issues:
 
   # global suppressions
   exclude-dirs:              # nothing reported from these folders :contentReference[oaicite:1]{index=1}
-    - vendor
     - build
     - dist
     - test
@@ -70,3 +69,10 @@ linters-settings:
   revive:
     confidence: 0.8
     severity: warning
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style

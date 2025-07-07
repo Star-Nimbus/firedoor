@@ -197,40 +197,41 @@ jobs:
         fi
 
     - name: Create Pull Request
+      id: create-pr
       uses: peter-evans/create-pull-request@v5
       with:
         token: ${{ secrets.CHARTS_REPO_TOKEN }}
         path: charts
         commit-message: "feat: sync charts from firedoor@${{ github.sha }}"
-        title: "🔄 Sync Helm charts from firedoor"
+        title: "Sync Helm charts from firedoor"
         body: |
-          ## 🔄 Automatic Chart Sync
+          ## Automatic Chart Sync
           
           This PR automatically syncs the Helm charts from the firedoor repository.
           
           **Source**: `Star-Nimbus/firedoor@${{ github.sha }}`
           **Trigger**: Changes in `${{ github.event_name }}`
           
-          ### 📋 Changes
-          - 📦 Updated chart templates from firedoor config
-          - 🔧 Regenerated CRD definitions
-          - 🔐 Updated RBAC permissions
-          - 📈 Incremented chart versions
-          - ✅ Validated chart templates
+          ### Changes
+          - Updated chart templates from firedoor config
+          - Regenerated CRD definitions
+          - Updated RBAC permissions
+          - Incremented chart versions
+          - Validated chart templates
           
-          ### 🧪 Validation
+          ### Validation
           - [x] Helm lint passed
           - [x] Template rendering successful
           - [x] Chart dependencies updated
           
-          ### 🔍 Files Changed
+          ### Files Changed
           ```
           ${{ steps.changes.outputs.files }}
           ```
           
           ---
           
-          🤖 This PR was created automatically by the sync-charts workflow.
+          This PR was created automatically by the sync-charts workflow.
           
           **Review checklist:**
           - [ ] Chart versions are correctly incremented
@@ -257,17 +258,17 @@ jobs:
     - name: Notify on success
       if: success()
       run: |
-        echo "✅ Charts successfully synced to charts repository"
-        echo "🔗 Repository: https://github.com/Star-Nimbus/charts"
+        echo "Charts successfully synced to charts repository"
+        echo "Repository: https://github.com/Star-Nimbus/charts"
         if [ -n "${{ steps.create-pr.outputs.pull-request-url }}" ]; then
-          echo "📝 Pull Request: ${{ steps.create-pr.outputs.pull-request-url }}"
+          echo "Pull Request: ${{ steps.create-pr.outputs.pull-request-url }}"
         fi
 
     - name: Notify on failure
       if: failure()
       run: |
-        echo "❌ Failed to sync charts to charts repository"
-        echo "🔍 Check the workflow logs for details"
+        echo "Failed to sync charts to charts repository"
+        echo "Check the workflow logs for details"
         exit 1
 
     - name: Cleanup

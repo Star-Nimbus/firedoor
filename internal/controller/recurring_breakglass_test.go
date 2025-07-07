@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,9 +15,6 @@ var _ = Describe("RecurringBreakglassManager", func() {
 	var m *RecurringBreakglassManager
 	BeforeEach(func() { m = NewRecurringBreakglassManager(time.UTC) })
 
-	// --------------------------------------------------------------------- //
-	//  CalculateNextActivation                                              //
-	// --------------------------------------------------------------------- //
 	DescribeTable("CalculateNextActivation",
 		func(schedule string, from, want time.Time) {
 			next, err := m.CalculateNextActivation(schedule, from)
@@ -31,9 +29,6 @@ var _ = Describe("RecurringBreakglassManager", func() {
 			time.Date(2024, 1, 8, 9, 0, 0, 0, time.UTC)), // next Mon
 	)
 
-	// --------------------------------------------------------------------- //
-	//  ShouldActivateRecurring (skip-missed logic)                          //
-	// --------------------------------------------------------------------- //
 	Context("ShouldActivateRecurring", func() {
 		It("initialises NextActivationAt then returns false", func() {
 			bg := &accessv1alpha1.Breakglass{
@@ -42,7 +37,7 @@ var _ = Describe("RecurringBreakglassManager", func() {
 					RecurrenceSchedule: "0 9 * * *",
 				},
 			}
-			Expect(m.ShouldActivateRecurring(bg)).To(BeFalse())
+			Expect(m.ShouldActivateRecurring(context.Background(), bg)).To(BeFalse())
 			Expect(bg.Status.NextActivationAt).NotTo(BeNil())
 		})
 
@@ -55,15 +50,12 @@ var _ = Describe("RecurringBreakglassManager", func() {
 				},
 				Status: accessv1alpha1.BreakglassStatus{NextActivationAt: &past},
 			}
-			Expect(m.ShouldActivateRecurring(bg)).To(BeFalse())
+			Expect(m.ShouldActivateRecurring(context.Background(), bg)).To(BeFalse())
 			Expect(bg.Status.NextActivationAt.Time).Should(BeTemporally(">", past.Time))
 		})
 	})
 
-	// --------------------------------------------------------------------- //
-	//  Transition helpers minimal sanity                                   //
-	// --------------------------------------------------------------------- //
-	It("transitions through pending → active with correct expiry", func() {
+	It("updates phase from pending to active with correct expiry", func() {
 		bg := &accessv1alpha1.Breakglass{
 			Spec: accessv1alpha1.BreakglassSpec{
 				Recurring:          true,

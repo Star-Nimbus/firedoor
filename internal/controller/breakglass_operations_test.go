@@ -67,6 +67,8 @@ var _ = Describe("BreakglassOperator", func() {
 					Justification:    "Test breakglass",
 					Subjects:         []accessv1alpha1.SubjectRef{{Kind: rbacv1.UserKind, Name: "test-user"}},
 				}
+				// Store the breakglass object in the mock client so it can be retrieved during status updates
+				mockClient.Create(ctx, bg)
 			})
 
 			It("should grant access successfully", func() {
@@ -74,19 +76,25 @@ var _ = Describe("BreakglassOperator", func() {
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.RequeueAfter).To(BeNumerically(">", 0))
-				Expect(bg.Status.Phase).To(Equal(accessv1alpha1.PhaseActive))
-				Expect(bg.Status.GrantedAt).NotTo(BeNil())
-				Expect(bg.Status.ExpiresAt).NotTo(BeNil())
+
+				// Get the updated breakglass object from the mock client
+				updatedBG := &accessv1alpha1.Breakglass{}
+				err = mockClient.Get(ctx, client.ObjectKeyFromObject(bg), updatedBG)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(updatedBG.Status.Phase).To(Equal(accessv1alpha1.PhaseActive))
+				Expect(updatedBG.Status.GrantedAt).NotTo(BeNil())
+				Expect(updatedBG.Status.ExpiresAt).NotTo(BeNil())
 
 				// Verify conditions
-				Expect(bg.Status.Conditions).To(HaveLen(3))
+				Expect(updatedBG.Status.Conditions).To(HaveLen(3))
 
-				approvedCondition := findCondition(bg.Status.Conditions, conditions.Approved.String())
+				approvedCondition := findCondition(updatedBG.Status.Conditions, conditions.Approved.String())
 				Expect(approvedCondition).NotTo(BeNil())
 				Expect(approvedCondition.Status).To(Equal(metav1.ConditionTrue))
 				Expect(approvedCondition.Reason).To(Equal(conditions.AccessGranted.String()))
 
-				activeCondition := findCondition(bg.Status.Conditions, conditions.Active.String())
+				activeCondition := findCondition(updatedBG.Status.Conditions, conditions.Active.String())
 				Expect(activeCondition).NotTo(BeNil())
 				Expect(activeCondition.Status).To(Equal(metav1.ConditionTrue))
 				Expect(activeCondition.Reason).To(Equal(conditions.AccessActive.String()))
@@ -112,6 +120,8 @@ var _ = Describe("BreakglassOperator", func() {
 					// No subjects - this should cause validation to fail
 					Subjects: []accessv1alpha1.SubjectRef{},
 				}
+				// Store the breakglass object in the mock client so it can be retrieved during status updates
+				mockClient.Create(ctx, bg)
 			})
 
 			It("should deny access and set appropriate conditions", func() {
@@ -119,19 +129,25 @@ var _ = Describe("BreakglassOperator", func() {
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.Requeue).To(BeFalse())
-				Expect(bg.Status.Phase).To(Equal(accessv1alpha1.PhaseDenied))
-				Expect(bg.Status.ApprovedBy).To(Equal(constants.ControllerIdentity))
+
+				// Get the updated breakglass object from the mock client
+				updatedBG := &accessv1alpha1.Breakglass{}
+				err = mockClient.Get(ctx, client.ObjectKeyFromObject(bg), updatedBG)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(updatedBG.Status.Phase).To(Equal(accessv1alpha1.PhaseDenied))
+				Expect(updatedBG.Status.ApprovedBy).To(Equal(constants.ControllerIdentity))
 
 				// Verify conditions
-				Expect(bg.Status.Conditions).To(HaveLen(2))
+				Expect(updatedBG.Status.Conditions).To(HaveLen(2))
 
-				deniedCondition := findCondition(bg.Status.Conditions, conditions.Denied.String())
+				deniedCondition := findCondition(updatedBG.Status.Conditions, conditions.Denied.String())
 				Expect(deniedCondition).NotTo(BeNil())
 				Expect(deniedCondition.Status).To(Equal(metav1.ConditionTrue))
 				Expect(deniedCondition.Reason).To(Equal(conditions.InvalidRequest.String()))
 				Expect(deniedCondition.Message).To(ContainSubstring("Missing subjects"))
 
-				approvedCondition := findCondition(bg.Status.Conditions, conditions.Approved.String())
+				approvedCondition := findCondition(updatedBG.Status.Conditions, conditions.Approved.String())
 				Expect(approvedCondition).NotTo(BeNil())
 				Expect(approvedCondition.Status).To(Equal(metav1.ConditionFalse))
 				Expect(approvedCondition.Message).To(Equal(conditions.RequestDeniedDueToMissingUserOrGroup.String()))
@@ -158,6 +174,8 @@ var _ = Describe("BreakglassOperator", func() {
 					Justification:    "Test breakglass",
 					Subjects:         []accessv1alpha1.SubjectRef{{Kind: rbacv1.UserKind, Name: "test-user"}},
 				}
+				// Store the breakglass object in the mock client so it can be retrieved during status updates
+				mockClient.Create(ctx, bg)
 			})
 
 			It("should revoke access successfully", func() {
@@ -165,18 +183,24 @@ var _ = Describe("BreakglassOperator", func() {
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
-				Expect(bg.Status.Phase).To(Equal(accessv1alpha1.PhaseExpired))
+
+				// Get the updated breakglass object from the mock client
+				updatedBG := &accessv1alpha1.Breakglass{}
+				err = mockClient.Get(ctx, client.ObjectKeyFromObject(bg), updatedBG)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(updatedBG.Status.Phase).To(Equal(accessv1alpha1.PhaseExpired))
 
 				// Verify conditions
-				Expect(bg.Status.Conditions).To(HaveLen(2))
+				Expect(updatedBG.Status.Conditions).To(HaveLen(2))
 
-				expiredCondition := findCondition(bg.Status.Conditions, conditions.Expired.String())
+				expiredCondition := findCondition(updatedBG.Status.Conditions, conditions.Expired.String())
 				Expect(expiredCondition).NotTo(BeNil())
 				Expect(expiredCondition.Status).To(Equal(metav1.ConditionTrue))
 				Expect(expiredCondition.Reason).To(Equal(conditions.AccessExpired.String()))
 				Expect(expiredCondition.Message).To(Equal(conditions.BreakglassAccessExpiredAndRevoked.String()))
 
-				activeCondition := findCondition(bg.Status.Conditions, conditions.Active.String())
+				activeCondition := findCondition(updatedBG.Status.Conditions, conditions.Active.String())
 				Expect(activeCondition).NotTo(BeNil())
 				Expect(activeCondition.Status).To(Equal(metav1.ConditionFalse))
 				Expect(activeCondition.Message).To(Equal(conditions.AccessIsNoLongerActive.String()))
@@ -207,6 +231,9 @@ var _ = Describe("BreakglassOperator", func() {
 			// Create a disabled Alertmanager service for testing
 			alertService := alerting.NewAlertmanagerService(&config.AlertmanagerConfig{Enabled: false}, recorder)
 			operator := NewBreakglassOperator(testMockClient, recorder, alertService, false)
+
+			// Store the breakglass object in the mock client so it can be retrieved during status updates
+			testMockClient.Create(ctx, bg)
 
 			_, err := operator.GrantAccess(context.Background(), bg)
 			Expect(err).NotTo(HaveOccurred())
@@ -312,7 +339,7 @@ var _ = Describe("resolveSubjects", func() {
 
 // MockClient is a simple mock implementation for testing
 type MockClient struct {
-	createdObjects map[string]map[string]client.Object // kind -> name -> object
+	createdObjects map[string]map[string]client.Object
 	scheme         *runtime.Scheme
 }
 
@@ -366,6 +393,9 @@ func (m *MockClient) Update(ctx context.Context, obj client.Object, _ ...client.
 }
 
 func (m *MockClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	kind := kindOf(obj)
+	m.ensureKind(kind)
+	m.createdObjects[kind][obj.GetName()] = obj.DeepCopyObject().(client.Object)
 	return nil
 }
 
@@ -374,7 +404,7 @@ func (m *MockClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ..
 }
 
 func (m *MockClient) Status() client.StatusWriter {
-	return &MockStatusWriter{}
+	return &MockStatusWriter{client: m}
 }
 
 func (m *MockClient) Scheme() *runtime.Scheme {
@@ -398,13 +428,21 @@ func (m *MockClient) SubResource(subResource string) client.SubResourceClient {
 }
 
 // MockStatusWriter is a simple mock implementation for testing
-type MockStatusWriter struct{}
+type MockStatusWriter struct {
+	client *MockClient
+}
 
 func (m *MockStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
 	return nil
 }
 
 func (m *MockStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	// Store the object when status is updated
+	if m.client != nil {
+		kind := kindOf(obj)
+		m.client.ensureKind(kind)
+		m.client.createdObjects[kind][obj.GetName()] = obj.DeepCopyObject().(client.Object)
+	}
 	return nil
 }
 
@@ -458,6 +496,8 @@ func kindOf(obj runtime.Object) string {
 			k = "Role"
 		case *rbacv1.RoleBinding:
 			k = "RoleBinding"
+		case *accessv1alpha1.Breakglass:
+			k = "Breakglass"
 		default:
 			k = "Unknown"
 		}

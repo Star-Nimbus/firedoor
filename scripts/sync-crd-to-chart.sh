@@ -1,49 +1,44 @@
 #!/bin/bash
 
-# Script to sync CRD from base to Helm chart template
-# This ensures the kubebuilder scaffold marker is preserved
-
+# Script to sync CRD from base to Helm chart
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-CHART_CRD_FILE="$PROJECT_ROOT/../charts/firedoor-crds/templates/crds.yaml"
-BASE_CRD_FILE="$PROJECT_ROOT/kustomize/crd/bases/access.cloudnimbus.io_breakglasses.yaml"
+echo "Syncing CRD from base to Helm chart..."
 
-echo "🔄 Syncing CRD from base to Helm chart..."
+# Define paths
+BASE_CRD_FILE="api/v1alpha1/breakglass_types.go"
+CHART_CRD_FILE="charts/firedoor/templates/crd/access.cloudnimbus.io_breakglasses.yaml"
+GEN_CRD_DIR=".generated"
 
-# Check if files exist
+# Check if base CRD file exists
 if [ ! -f "$BASE_CRD_FILE" ]; then
-    echo "❌ Base CRD file not found: $BASE_CRD_FILE"
+    echo "Base CRD file not found: $BASE_CRD_FILE"
     exit 1
 fi
 
+# Check if chart CRD file exists
 if [ ! -f "$CHART_CRD_FILE" ]; then
-    echo "❌ Chart CRD file not found: $CHART_CRD_FILE"
+    echo "Chart CRD file not found: $CHART_CRD_FILE"
     exit 1
 fi
 
-# Create temporary file for the updated chart CRD
-TEMP_FILE=$(mktemp)
+# Create generated directory if it doesn't exist
+mkdir -p "$GEN_CRD_DIR"
 
-# Add the Helm conditional and kubebuilder marker
-echo "{{- if .Values.crds.install }}" > "$TEMP_FILE"
-echo "#+kubebuilder:scaffold:crdkustomizeresource" >> "$TEMP_FILE"
+# Generate CRD from Go types to .generated directory
+echo "Generating CRD from Go types..."
+controller-gen crd:maxDescLen=0,generateEmbeddedObjectMeta=true paths="./api/v1alpha1/..." output:crd:dir="$GEN_CRD_DIR"
 
-# Add the CRD content with proper indentation
-cat "$BASE_CRD_FILE" | sed 's/^/  /' >> "$TEMP_FILE"
-
-# Add the closing Helm conditional
-echo "{{- end }}" >> "$TEMP_FILE"
-
-# Replace the chart file
-cp "$TEMP_FILE" "$CHART_CRD_FILE"
-
-# Clean up
-rm "$TEMP_FILE"
-
-echo "✅ CRD synced successfully to: $CHART_CRD_FILE"
-echo "📋 Changes:"
-echo "   - Updated CRD schema from base file"
-echo "   - Preserved kubebuilder scaffold marker"
-echo "   - Maintained Helm template structure" 
+# Check if generation was successful
+if [ $? -eq 0 ]; then
+    echo "CRD generated successfully to $GEN_CRD_DIR"
+    
+    # Use the wrap-crd.sh script to properly wrap the CRDs with Helm templating
+    echo "Wrapping CRDs with Helm templating..."
+    ./scripts/wrap-crd.sh
+    
+    echo "CRD synced successfully to: $CHART_CRD_FILE"
+else
+    echo "Failed to sync CRD"
+    exit 1
+fi 

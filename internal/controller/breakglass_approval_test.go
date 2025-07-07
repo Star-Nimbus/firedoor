@@ -22,14 +22,37 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 	"github.com/cloud-nimbus/firedoor/internal/alerting"
 	"github.com/cloud-nimbus/firedoor/internal/config"
-	rbacv1 "k8s.io/api/rbac/v1"
 )
+
+// Add a simple base Breakglass for tests
+func baseBreakglass() *accessv1alpha1.Breakglass {
+	return &accessv1alpha1.Breakglass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "base-breakglass",
+			Namespace: "default",
+		},
+		Spec: accessv1alpha1.BreakglassSpec{
+			Subjects: []accessv1alpha1.SubjectRef{{
+				Kind: rbacv1.UserKind,
+				Name: "test-user",
+			}},
+			ClusterRoles:     []string{"admin"},
+			ApprovalRequired: true,
+			Duration:         &metav1.Duration{Duration: time.Minute},
+			Justification:    "Test base",
+		},
+		Status: accessv1alpha1.BreakglassStatus{
+			Phase: accessv1alpha1.PhasePending,
+		},
+	}
+}
 
 var _ = Describe("Breakglass Approval Logic", func() {
 	var (
@@ -54,25 +77,10 @@ var _ = Describe("Breakglass Approval Logic", func() {
 
 	Describe("Approval Required Logic", func() {
 		It("should require approval when ApprovalRequired is true", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-approval-required",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test approval required",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase: accessv1alpha1.PhasePending,
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-approval-required"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
 
 			// Should stay in pending phase when approval is required but not approved
 			result, err := reconciler.handlePendingBreakglass(ctx, bg)
@@ -84,25 +92,13 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		})
 
 		It("should auto-approve when ApprovalRequired is false", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-auto-approve",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test auto approve",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase: accessv1alpha1.PhasePending,
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-auto-approve"
+			bg.Spec.ApprovalRequired = false
+			bg.Status.Phase = accessv1alpha1.PhasePending
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			// Should proceed to grant access when approval not required
 			result, err := reconciler.handlePendingBreakglass(ctx, bg)
@@ -111,27 +107,15 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		})
 
 		It("should proceed when approval is required and already approved", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-already-approved",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test already approved",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase:      accessv1alpha1.PhasePending,
-					ApprovedBy: "admin-user",
-					ApprovedAt: &metav1.Time{Time: time.Now()},
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-already-approved"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
+			bg.Status.ApprovedBy = "admin-user"
+			bg.Status.ApprovedAt = &metav1.Time{Time: time.Now()}
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			// Should proceed to grant access when already approved
 			result, err := reconciler.handlePendingBreakglass(ctx, bg)
@@ -142,25 +126,13 @@ var _ = Describe("Breakglass Approval Logic", func() {
 
 	Describe("Manual Approval", func() {
 		It("should approve a pending breakglass", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-manual-approve",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test manual approval",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase: accessv1alpha1.PhasePending,
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-manual-approve"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			err := reconciler.ApproveBreakglass(ctx, bg, "admin-user")
 			Expect(err).NotTo(HaveOccurred())
@@ -181,27 +153,12 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		})
 
 		It("should not approve an already approved breakglass", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-already-approved-error",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test already approved error",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase:      accessv1alpha1.PhasePending,
-					ApprovedBy: "first-admin",
-					ApprovedAt: &metav1.Time{Time: time.Now()},
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-already-approved-error"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
+			bg.Status.ApprovedBy = "first-admin"
+			bg.Status.ApprovedAt = &metav1.Time{Time: time.Now()}
 
 			err := reconciler.ApproveBreakglass(ctx, bg, "second-admin")
 			Expect(err).To(HaveOccurred())
@@ -209,25 +166,10 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		})
 
 		It("should not approve a non-pending breakglass", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-wrong-phase-error",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test wrong phase error",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase: accessv1alpha1.PhaseActive,
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-wrong-phase-error"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhaseActive
 
 			err := reconciler.ApproveBreakglass(ctx, bg, "admin-user")
 			Expect(err).To(HaveOccurred())
@@ -237,25 +179,13 @@ var _ = Describe("Breakglass Approval Logic", func() {
 
 	Describe("Manual Denial", func() {
 		It("should deny a pending breakglass", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-manual-deny",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test manual denial",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase: accessv1alpha1.PhasePending,
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-manual-deny"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			err := reconciler.DenyBreakglass(ctx, bg, "admin-user", "Insufficient justification")
 			Expect(err).NotTo(HaveOccurred())
@@ -276,27 +206,12 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		})
 
 		It("should not deny an already approved breakglass", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-deny-approved-error",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test deny approved error",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase:      accessv1alpha1.PhasePending,
-					ApprovedBy: "admin-user",
-					ApprovedAt: &metav1.Time{Time: time.Now()},
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-deny-approved-error"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
+			bg.Status.ApprovedBy = "admin-user"
+			bg.Status.ApprovedAt = &metav1.Time{Time: time.Now()}
 
 			err := reconciler.DenyBreakglass(ctx, bg, "admin-user", "Too late")
 			Expect(err).To(HaveOccurred())
@@ -306,25 +221,13 @@ var _ = Describe("Breakglass Approval Logic", func() {
 
 	Describe("Manual Revocation", func() {
 		It("should revoke an active breakglass", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-manual-revoke",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test manual revocation",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase: accessv1alpha1.PhaseActive,
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-manual-revoke"
+			bg.Spec.ApprovalRequired = false
+			bg.Status.Phase = accessv1alpha1.PhaseActive
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			err := reconciler.RevokeBreakglass(ctx, bg, "admin-user", "Security incident")
 			Expect(err).NotTo(HaveOccurred())
@@ -345,25 +248,10 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		})
 
 		It("should not revoke a non-active breakglass", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-revoke-pending-error",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test revoke pending error",
-				},
-				Status: accessv1alpha1.BreakglassStatus{
-					Phase: accessv1alpha1.PhasePending,
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-revoke-pending-error"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
 
 			err := reconciler.RevokeBreakglass(ctx, bg, "admin-user", "Too early")
 			Expect(err).To(HaveOccurred())
@@ -373,22 +261,10 @@ var _ = Describe("Breakglass Approval Logic", func() {
 
 	Describe("New Breakglass Handling", func() {
 		It("should set pending phase for new breakglass with approval required", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-new-pending",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: true,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test new pending",
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-new-pending"
+			bg.Spec.ApprovalRequired = true
+			bg.Status.Phase = accessv1alpha1.PhasePending
 
 			result, err := reconciler.handleNewBreakglass(ctx, bg)
 			Expect(err).NotTo(HaveOccurred())
@@ -397,26 +273,17 @@ var _ = Describe("Breakglass Approval Logic", func() {
 		})
 
 		It("should auto-approve new breakglass when approval not required", func() {
-			bg := &accessv1alpha1.Breakglass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-new-auto-approve",
-					Namespace: "default",
-				},
-				Spec: accessv1alpha1.BreakglassSpec{
-					Subjects: []accessv1alpha1.SubjectRef{{
-						Kind: rbacv1.UserKind,
-						Name: "test-user",
-					}},
-					ClusterRoles:     []string{"admin"},
-					ApprovalRequired: false,
-					Duration:         &metav1.Duration{Duration: time.Minute},
-					Justification:    "Test new auto approve",
-				},
-			}
+			bg := baseBreakglass().DeepCopy()
+			bg.Name = "test-new-auto-approve"
+			bg.Spec.ApprovalRequired = false
+			bg.Status.Phase = "" // Empty phase for new breakglass
+
+			// Create the breakglass in the mock client first
+			Expect(mockClient.Create(ctx, bg)).To(Succeed())
 
 			result, err := reconciler.handleNewBreakglass(ctx, bg)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+			Expect(result.Requeue).To(BeTrue()) // Should requeue immediately after initial setup
 		})
 	})
 })

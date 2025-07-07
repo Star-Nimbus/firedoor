@@ -4,8 +4,6 @@
 *.dll
 *.so
 *.dylib
-bin/*
-Dockerfile.cross
 
 # Test binary, built with `go test -c`
 *.test
@@ -16,19 +14,39 @@ Dockerfile.cross
 # Go workspace file
 go.work
 
-# Vendor directory (managed by go mod vendor)
-vendor/
-
-# Kubernetes Generated files - skip generated files, except for vendored files
-!vendor/**/zz_generated.*
-
-# editor and IDE paraphernalia
-.idea
-.vscode
+# IDE files
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
 
-.generated/
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-bin
+# Build artifacts
+bin/
+dist/
+build/
+
+# Test artifacts
+coverage.out
+cover.out
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/

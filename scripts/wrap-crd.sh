@@ -1,51 +1,48 @@
 #!/bin/bash
-
-# Script to wrap generated CRDs with Helm templating
-# This ensures CRDs can be upgraded by Helm while maintaining Kubebuilder as the single source of truth
-
 set -e
+echo "Wrapping CRDs with Helm templating..."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-GEN_CRD_DIR="$PROJECT_ROOT/.generated"
-TEMPLATE_CRD_DIR="$PROJECT_ROOT/charts/firedoor/templates/crd"
-
-echo "🔄 Wrapping CRDs with Helm templating..."
-
-# Create template directory if it doesn't exist
-mkdir -p "$TEMPLATE_CRD_DIR"
+# Define paths
+GEN_CRD_DIR=".generated"
+TEMPLATE_CRD_DIR="charts/firedoor/templates/crd"
 
 # Check if generated CRD directory exists
 if [ ! -d "$GEN_CRD_DIR" ]; then
-    echo "❌ Generated CRD directory not found: $GEN_CRD_DIR"
+    echo "Generated CRD directory not found: $GEN_CRD_DIR"
     echo "   Run 'make manifests' first to generate CRDs"
     exit 1
 fi
 
-# Process each generated CRD file
-for f in "$GEN_CRD_DIR"/*.yaml; do
-    if [ ! -f "$f" ]; then
-        echo "⚠️  No CRD files found in $GEN_CRD_DIR"
-        break
-    fi
+# Create template directory if it doesn't exist
+mkdir -p "$TEMPLATE_CRD_DIR"
+
+# Find all CRD files
+CRD_FILES=$(find "$GEN_CRD_DIR" -name "*.yaml" -o -name "*.yml")
+
+if [ -z "$CRD_FILES" ]; then
+    echo "No CRD files found in $GEN_CRD_DIR"
+    echo "   Run 'make manifests' first to generate CRDs"
+    exit 1
+fi
+
+# Process each CRD file
+for b in $CRD_FILES; do
+    echo "Wrapping $b..."
     
-    b=$(basename "$f")
-    echo "📝 Wrapping $b..."
+    # Extract filename
+    filename=$(basename "$b")
     
-    # Create wrapped CRD with Helm conditional
+    # Create wrapped version with Helm templating (no kubebuilder reference, no extra indentation)
     {
-        echo '{{- if .Values.crds.install }}'
-        echo '#+kubebuilder:scaffold:crdkustomizeresource'
-        cat "$f"
-        echo '{{- end }}'
-    } > "$TEMPLATE_CRD_DIR/$b"
+        echo "{{- if .Values.crds.install }}"
+        cat "$b"
+        echo "{{- end }}"
+    } > "$TEMPLATE_CRD_DIR/$filename"
     
-    echo "✅ Wrapped $b -> $TEMPLATE_CRD_DIR/$b"
+    echo "Wrapped $b -> $TEMPLATE_CRD_DIR/$filename"
 done
 
-echo "🎉 CRD wrapping completed successfully!"
-echo "📋 Summary:"
-echo "   - Generated CRDs wrapped with Helm templating"
-echo "   - CRDs will be installed/upgraded by Helm"
-echo "   - Maintains Kubebuilder as single source of truth"
-echo "   - CRDs can be toggled with .Values.crds.install" 
+echo "CRD wrapping completed successfully!"
+echo "Summary:"
+echo " - Processed $(echo "$CRD_FILES" | wc -w) CRD files"
+echo " - Output directory: $TEMPLATE_CRD_DIR"

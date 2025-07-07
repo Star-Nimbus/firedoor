@@ -183,31 +183,27 @@ func (r *BreakglassReconciler) handleNewBreakglass(ctx context.Context, bg *acce
 		"subjectCount", len(bg.Spec.Subjects),
 		"justification", bg.Spec.Justification)
 
-	// // Add finalizer if not present
-	// if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
-	// 	lg.Info("Adding finalizer", "finalizer", breakglassFinalizer)
-	// 	controllerutil.AddFinalizer(bg, breakglassFinalizer)
-	// 	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-	// 		return r.Client.Update(ctx, bg)
-	// 	}); err != nil {
-	// 		return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
-	// 	}
-	// }
-
-	// ➊ First-time reconcile: add the finaliser and *return*
+	// first-time reconcile: add the finaliser for garbage collections
 	if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
-		// (a) metadata patch – finaliser only
+		// metadata patch – finaliser only
 		metaPatch := client.MergeFrom(bg.DeepCopy())
 		controllerutil.AddFinalizer(bg, breakglassFinalizer)
 		if err := r.Client.Patch(ctx, bg, metaPatch); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to add finaliser: %w", err)
 		}
 
-		// (b) seed status while we're here so Phase is never empty
+		// seed status while we're here so Phase is never empty
 		if err := r.patchStatus(ctx, bg, func() {
-			// brand-new resource ⇒ PhasePending or RecurringPending
+
 			if bg.Spec.Recurring {
 				bg.Status.Phase = accessv1alpha1.PhaseRecurringPending
+				// Initialize recurring status including NextActivationAt
+				if r.recurringManager != nil {
+					if err := r.recurringManager.TransitionToRecurringPending(bg); err != nil {
+						lg.Error(err, "Failed to initialize recurring breakglass", "breakglass", bg.Name)
+						return
+					}
+				}
 			} else {
 				bg.Status.Phase = accessv1alpha1.PhasePending
 			}
@@ -456,7 +452,7 @@ func (r *BreakglassReconciler) handleRecurringPendingBreakglass(ctx context.Cont
 	}
 
 	// Check if it's time to activate
-	if r.recurringManager.ShouldActivateRecurring(bg) {
+	if r.recurringManager.ShouldActivateRecurring(ctx, bg) {
 		// Transition to RecurringActive and grant access
 		if err := r.recurringManager.TransitionToRecurringActive(bg); err != nil {
 			nsKey := telemetry.NamespaceKey(bg)

@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
-	"math/rand"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -69,20 +68,24 @@ func init() {
 
 // newManagerCmd creates the manager command
 func newManagerCmd() *cobra.Command {
+	var logLevel string
+
 	cmd := &cobra.Command{
 		Use:   "manager",
 		Short: managerCmdShort,
 		Long:  managerCmdLong,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runManager(cmd.Context(), cfg)
+			return runManager(cmd.Context(), cfg, logLevel)
 		},
 	}
+	cmd.Flags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	return cmd
 }
 
-func runManager(ctx context.Context, cfg *config.Config) error {
-	// Initialize random seed to avoid identical jitter across controller pods
-	rand.Seed(time.Now().UnixNano())
+func runManager(ctx context.Context, cfg *config.Config, logLevel string) error {
+	// Set up logger with log level
+	opts := telemetry.ConfigureZapLogger(logLevel)
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	var metricsAddr string
 	var probeAddr string
@@ -152,8 +155,6 @@ func runManager(ctx context.Context, cfg *config.Config) error {
 		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
-
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
