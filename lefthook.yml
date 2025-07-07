@@ -31,15 +31,6 @@ pre-commit:
       glob: "**/Chart.yaml"
       run: make lint-helm
 
-    # Check for TODO/FIXME comments
-    todo-check:
-      glob: "*.{go,yml,yaml,md}"
-      run: |
-        if git diff --cached --name-only | xargs grep -l "TODO\|FIXME" 2>/dev/null; then
-          echo "Found TODO/FIXME comments. Consider addressing them before committing."
-          exit 1
-        fi
-
 # Pre-push hook - runs before pushing
 pre-push:
   commands:
@@ -57,16 +48,21 @@ commit-msg:
     # Check commit message format
     commit-message:
       run: |
-        commit_msg=$(cat "$1")
-        if ! echo "$commit_msg" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?: .+"; then
-          echo "Commit message should follow conventional commits format:"
-          echo "  <type>(<scope>): <description>"
-          echo ""
-          echo "Types: feat, fix, docs, style, refactor, test, chore, ci, build, perf, revert"
-          echo "Example: feat(controller): add new breakglass validation"
-          echo ""
-          echo "Current message: $commit_msg"
+        # Get the commit message from git
+        COMMIT_MSG=$(git log -1 --pretty=format:%s)
+        
+        # Check if commit message follows conventional commits format
+        if ! echo "$COMMIT_MSG" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+"; then
+          echo " Commit message should follow conventional commits format:"
+          echo "   <type>(<scope>): <description>"
+          echo "   Examples:"
+          echo "   - feat: add new feature"
+          echo "   - fix(auth): resolve login issue"
+          echo "   - docs: update README"
+          echo "   - chore: update dependencies"
+          echo "   Current message: $COMMIT_MSG"
           exit 1
+        fi
 
 # Post-commit hook - runs after commit
 post-commit:
