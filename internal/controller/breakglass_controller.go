@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
 	"github.com/cloud-nimbus/firedoor/internal/alerting"
@@ -173,62 +174,67 @@ func isExpired(bg *accessv1alpha1.Breakglass) bool {
 
 // handleNewBreakglass handles a newly created breakglass
 func (r *BreakglassReconciler) handleNewBreakglass(ctx context.Context, bg *accessv1alpha1.Breakglass) (ctrl.Result, error) {
-	// Add finalizer if not present
-	if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
-		controllerutil.AddFinalizer(bg, breakglassFinalizer)
-		if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
-			return r.Client.Update(ctx, bg)
-		}); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
-		}
-	}
+	lg := log.FromContext(ctx)
+	lg.V(1).Info("New breakglass resource created",
+		"breakglass", bg.Name,
+		"namespace", bg.Namespace,
+		"recurring", bg.Spec.Recurring,
+		"approvalRequired", bg.Spec.ApprovalRequired,
+		"subjectCount", len(bg.Spec.Subjects),
+		"justification", bg.Spec.Justification)
 
-	// Prepare status updates
-	updated := bg.DeepCopy()
-	if updated.Spec.Recurring {
-		if err := r.recurringManager.TransitionToRecurringPending(updated); err != nil {
+	// // Add finalizer if not present
+	// if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
+	// 	lg.Info("Adding finalizer", "finalizer", breakglassFinalizer)
+	// 	controllerutil.AddFinalizer(bg, breakglassFinalizer)
+	// 	if err := retry.OnError(retry.DefaultRetry, apierrors.IsConflict, func() error {
+	// 		return r.Client.Update(ctx, bg)
+	// 	}); err != nil {
+	// 		return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
+	// 	}
+	// }
+
+	// ➊ First-time reconcile: add the finaliser and *return*
+	if !controllerutil.ContainsFinalizer(bg, breakglassFinalizer) {
+		// (a) metadata patch – finaliser only
+		metaPatch := client.MergeFrom(bg.DeepCopy())
+		controllerutil.AddFinalizer(bg, breakglassFinalizer)
+		if err := r.Client.Patch(ctx, bg, metaPatch); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to add finaliser: %w", err)
+		}
+
+		// (b) seed status while we're here so Phase is never empty
+		if err := r.patchStatus(ctx, bg, func() {
+			// brand-new resource ⇒ PhasePending or RecurringPending
+			if bg.Spec.Recurring {
+				bg.Status.Phase = accessv1alpha1.PhaseRecurringPending
+			} else {
+				bg.Status.Phase = accessv1alpha1.PhasePending
+			}
+
+			if !bg.Spec.ApprovalRequired {
+				now := metav1.Now()
+				bg.Status.ApprovedBy = AutoApprover
+				bg.Status.ApprovedAt = &now
+			}
+		}); err != nil {
 			return ctrl.Result{}, err
 		}
-		meta.SetStatusCondition(&updated.Status.Conditions, metav1.Condition{
-			Type:               conditions.RecurringPending.String(),
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             conditions.RecurringAccessScheduled.String(),
-			Message:            conditions.RecurringAccessScheduledForActivation.String(),
-		})
-	} else {
-		updated.Status.Phase = accessv1alpha1.PhasePending
-	}
-	updated.Status.ApprovedBy = ""
-	updated.Status.ApprovedAt = nil
 
-	if !updated.Spec.ApprovalRequired {
-		now := metav1.Now()
-		updated.Status.ApprovedBy = AutoApprover
-		updated.Status.ApprovedAt = &now
+		// Let the next pass finish the workflow with a clean copy
+		return ctrl.Result{Requeue: true}, nil
 	}
-
-	if err := r.patchStatus(ctx, bg, func() {
-		bg.Status = updated.Status
-	}); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// If approval is not required, handle based on whether it's recurring or not
-	if !bg.Spec.ApprovalRequired {
-		if bg.Spec.Recurring {
-			return r.handleRecurringPendingBreakglass(ctx, bg)
-		} else {
-			return r.handlePendingBreakglass(ctx, bg)
-		}
-	}
-
-	// If approval is required, wait for manual approval
 	return ctrl.Result{}, nil
 }
 
 // handlePendingBreakglass handles a breakglass in Pending phase
 func (r *BreakglassReconciler) handlePendingBreakglass(ctx context.Context, bg *accessv1alpha1.Breakglass) (ctrl.Result, error) {
+	lg := log.FromContext(ctx)
+	lg.V(1).Info("handlePendingBreakglass",
+		"breakglass", bg.Name,
+		"namespace", bg.Namespace,
+		"phase", bg.Status.Phase,
+		"approvalRequired", bg.Spec.ApprovalRequired)
 	// If approval is required, wait for manual approval
 	if bg.Spec.ApprovalRequired {
 		if !approved(bg) {

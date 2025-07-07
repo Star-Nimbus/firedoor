@@ -4,38 +4,28 @@ metadata:
   name: example-breakglass
   namespace: firedoor-system
 spec:
-  # Whether approval is required (default: true)
   approvalRequired: false
-  
-  # Duration of the breakglass access (default: 1 hour if not specified)
   duration: 30m
-  
-  # Justification for the breakglass access
   justification: "Emergency access for debugging production issue"
   
-  # Subjects who will receive the access
   subjects:
     - kind: User
-      name: "john.doe@example.com"
+      name: "mail@matthewmcleod.co.uk"
     - kind: Group
       name: "developers"
   
-  # Access policy defining what permissions are granted
   accessPolicy:
     rules:
-      # Rule 1: Read access to pods in default namespace
       - actions: ["get", "list", "watch"]
         resources: ["pods"]
         apiGroups: [""]
         namespaces: ["default"]
       
-      # Rule 2: Read access to services in multiple namespaces
       - actions: ["get", "list"]
         resources: ["services"]
         apiGroups: [""]
         namespaces: ["default", "kube-system"]
       
-      # Rule 3: Full access to configmaps in specific namespace
       - actions: ["get", "list", "create", "update", "patch", "delete"]
         resources: ["configmaps"]
         apiGroups: [""]
