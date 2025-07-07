@@ -36,11 +36,6 @@ build:
         main: ./cmd
         env:
           - CGO_ENABLED=0
-manifests:
-  # Install CRDs first as a dependency
-  kustomize:
-    paths:
-      - kustomize/tempo
 deploy:
   kubectl: {}
   helm:
@@ -171,6 +166,3 @@ profiles:
       - op: replace
         path: /portForward
         value: []
-
-
-

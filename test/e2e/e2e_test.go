@@ -100,20 +100,37 @@ var _ = Describe("Firedoor operator", Ordered, Serial, func() {
 
 	It("should grant and expire a Breakglass session", func() {
 		name := randomName("breakglass")
+		By("creating breakglass - {name}")
 		bg := createBreakglass(name, "test-user", time.Minute)
 
+		By("asserting approval required is false")
+		Expect(bg.Spec.ApprovalRequired).To(BeFalse())
+
 		Expect(k8sClient.Create(ctx, bg)).To(Succeed())
+		By("checking breakglass is created")
+		Eventually(func() error {
+			bg, err := fetchBreakglass(ctx, k8sClient, name)
+			if err != nil {
+				return err
+			}
+			Expect(bg.Spec.ApprovalRequired).To(BeFalse())
+			return nil
+		}, timeout, pollInterval).Should(Succeed())
+
 		DeferCleanup(k8sClient.Delete, ctx, bg)
 
 		By("waiting for Breakglass to become Active")
 		Eventually(func() accessv1alpha1.BreakglassPhase {
 			bg, _ := fetchBreakglass(ctx, k8sClient, name)
+			// assert approval required is false
+			Expect(bg.Spec.ApprovalRequired).To(BeFalse())
 			return bg.Status.Phase
 		}, timeout, pollInterval).Should(Equal(accessv1alpha1.PhaseActive))
 
 		By("waiting for Breakglass to expire")
 		Eventually(func() accessv1alpha1.BreakglassPhase {
 			bg, _ := fetchBreakglass(ctx, k8sClient, name)
+
 			return bg.Status.Phase
 		}, timeout, pollInterval).Should(Equal(accessv1alpha1.PhaseExpired))
 

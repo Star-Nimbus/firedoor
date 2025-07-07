@@ -18,49 +18,22 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Breakglass is the Schema for the breakglass API, representing
-          a single emergency access request.
         properties:
           apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
-            description: BreakglassSpec defines the desired state of a Breakglass
-              access request.
             properties:
               accessPolicy:
-                description: |-
-                  AccessPolicy specifies inline RBAC rules (permissions) to grant.
-                  If provided, the operator will create a temporary Role/ClusterRole with these rules.
                 properties:
                   rules:
-                    description: |-
-                      Rules is the list of access rules (verbs, resources, etc.) that define the permissions.
-                      Each rule is analogous to a single RBAC policy rule.
                     items:
-                      description: AccessRule describes a single permission rule to
-                        be granted.
                       properties:
                         actions:
-                          description: Actions (verbs) allowed, e.g., ["get", "list",
-                            "update"].
                           items:
-                            description: Action (aka Verb) defines valid Kubernetes
-                              API actions for a rule.
                             enum:
                             - get
                             - list
@@ -72,31 +45,18 @@ spec:
                             type: string
                           type: array
                         apiGroups:
-                          description: |-
-                            APIGroups of the resources (e.g., ["", "apps"] for core or named API groups).
-                            Use "" for core API group resources.
                           items:
                             type: string
                           type: array
                         namespaces:
-                          description: |-
-                            Namespaces to which this rule applies. If specified, access is limited to these namespaces.
-                            If empty, the rule applies cluster-wide or to cluster-scoped resources.
-                            (For cluster-scoped resources like "nodes", leave this empty or use cluster-wide bindings.)
                           items:
                             type: string
                           type: array
                         resourceNames:
-                          description: |-
-                            ResourceNames restricts the rule to specific resource instances by name (e.g., ["my-configmap"]).
-                            If empty or unspecified, the rule applies to all objects of the given resource types.
                           items:
                             type: string
                           type: array
                         resources:
-                          description: |-
-                            Resources to which the actions apply (e.g., ["pods", "deployments"]).
-                            Subresources can be specified as "resource/subresource" (e.g., "pods/log").
                           items:
                             type: string
                           type: array
@@ -104,59 +64,28 @@ spec:
                     type: array
                 type: object
               approvalRequired:
-                default: true
-                description: |-
-                  ApprovalRequired indicates if manual approval by a privileged user is needed before access is activated.
-                  Recommended to default to true for safety.
                 type: boolean
               clusterRoles:
-                description: |-
-                  ClusterRoles lists existing ClusterRole names to bind to the subjects for the duration.
-                  Use this to grant pre-defined roles (e.g., "cluster-admin") without specifying custom rules.
                 items:
                   type: string
                 type: array
               duration:
-                description: |-
-                  Duration is the requested length of time that access should be active (e.g., "1h", "30m").
-                  After this duration, the access will expire automatically.
-                  Uses Kubernetes duration format (Go metav1.Duration).
                 type: string
               justification:
-                description: |-
-                  Justification is a **required** explanation of why this access is needed.
-                  This should be a clear, specific reason and may be logged for audit purposes.
-                  (e.g., "Production outage troubleshooting - need access to restart pods").
                 minLength: 1
                 type: string
               recurrenceSchedule:
-                description: |-
-                  RecurrenceSchedule defines an optional schedule (cron expression or interval) for recurring access activations.
-                  For example, a cron string to allow access every weekday at 9AM. This field is used only if Recurring is true.
                 type: string
               recurring:
-                description: |-
-                  Recurring indicates if the access request is recurring (e.g., a standing approval for repeated use).
-                  If true, the operator may allow this access to be reactivated on a schedule or manually without a new request.
                 type: boolean
               subjects:
-                description: |-
-                  Subjects defines the users or groups to grant temporary access to.
-                  Each subject is specified by kind (User, Group, or ServiceAccount) and name.
-                  Only Kubernetes RBAC subjects are supported (e.g., User or Group names as known to the cluster).
                 items:
-                  description: SubjectRef represents a subject (user, group, or service
-                    account) for RBAC.
                   properties:
                     kind:
-                      description: Kind of subject (e.g., "User", "Group", or "ServiceAccount").
                       type: string
                     name:
-                      description: Name of the user, group, or service account.
                       type: string
                     namespace:
-                      description: Namespace for ServiceAccount subjects (optional;
-                        not used for User or Group kinds).
                       type: string
                   required:
                   - kind
@@ -165,94 +94,45 @@ spec:
                 minItems: 1
                 type: array
               ticketID:
-                description: |-
-                  TicketID (optional) links to an external incident or change ticket for this request.
-                  This provides traceability to external audit systems.
                 type: string
             required:
             - justification
             type: object
           status:
-            description: BreakglassStatus defines the observed state of Breakglass
-              (set by the operator).
             properties:
               activationCount:
-                description: |-
-                  ActivationCount tracks the number of times this recurring breakglass has been activated.
-                  This helps with monitoring and debugging recurring access patterns.
                 format: int32
                 type: integer
               approvedAt:
-                description: ApprovedAt is the timestamp when the request was approved.
-                  Nil if not yet approved or if auto-approved.
                 format: date-time
                 type: string
               approvedBy:
-                description: |-
-                  ApprovedBy records the username or identity of the approver who approved the request.
-                  For auto-approved requests, this could be set to a system identity.
                 type: string
               conditions:
-                description: |-
-                  Conditions represent the current conditions of the request (for Kubernetes standard Condition reporting).
-                  Example conditions might include "Approved" or "Expired" with True/False status.
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
                   properties:
                     lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
                       maxLength: 32768
                       type: string
                     observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
                       format: int64
                       minimum: 0
                       type: integer
                     reason:
-                      description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
                       maxLength: 1024
                       minLength: 1
                       pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
-                      description: status of the condition, one of True, False, Unknown.
                       enum:
                       - "True"
                       - "False"
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -265,31 +145,18 @@ spec:
                   type: object
                 type: array
               expiresAt:
-                description: |-
-                  ExpiresAt is the timestamp when the access is scheduled to expire (GrantedAt + Duration).
-                  The operator should revoke access at or after this time if the request is active.
                 format: date-time
                 type: string
               grantedAt:
-                description: |-
-                  GrantedAt is the timestamp when access was actually granted (activated).
-                  In many cases this will equal ApprovedAt, but if there is a delay or scheduled start, it may differ.
                 format: date-time
                 type: string
               lastActivationAt:
-                description: LastActivationAt is the timestamp of the most recent
-                  activation for recurring breakglass requests.
                 format: date-time
                 type: string
               nextActivationAt:
-                description: |-
-                  NextActivationAt is the timestamp when the next recurring activation should occur.
-                  This is calculated based on the RecurrenceSchedule and is only set for recurring breakglass requests.
                 format: date-time
                 type: string
               phase:
-                description: Phase is the current state of the request (Pending, Active,
-                  Expired, Denied, or Revoked).
                 type: string
             type: object
         type: object

@@ -40,7 +40,6 @@ type BreakglassSpec struct {
 
 	// ApprovalRequired indicates if manual approval by a privileged user is needed before access is activated.
 	// Recommended to default to true for safety.
-	// +kubebuilder:default=true
 	ApprovalRequired bool `json:"approvalRequired,omitempty"`
 
 	// Duration is the requested length of time that access should be active (e.g., "1h", "30m").

@@ -236,4 +236,7 @@ webhook:
 commonLabels: {}
 
 # Common annotations applied to all resources
-commonAnnotations: {} 
+commonAnnotations: {}
+
+# Log level for the operator. Valid values: debug, info, warn, error. Default: info
+logLevel: info 

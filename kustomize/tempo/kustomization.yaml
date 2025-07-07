@@ -1,2 +1,4 @@
 resources:
 - datastore.yaml
+
+namespace: metrics-system
