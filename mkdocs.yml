@@ -1,0 +1,90 @@
+site_name: Firedoor Documentation
+site_description: Kubernetes Breakglass Access Management System
+site_author: Cloud-Nimbus Team
+site_url: https://cloud-nimbus.github.io/firedoor
+
+# Repository
+repo_name: Star-Nimbus/firedoor
+repo_url: https://github.com/Star-Nimbus/firedoor
+edit_uri: edit/main/docs/
+
+# Configuration
+theme:
+  name: material
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+
+# Plugins
+plugins:
+  - search
+
+# Page tree
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+    - Configuration: getting-started/configuration.md
+  - User Guide:
+    - Concepts: user-guide/concepts.md
+    - Breakglass Types: user-guide/breakglass-types.md
+    - Scheduling: user-guide/scheduling.md
+    - RBAC: user-guide/rbac.md
+  - Examples:
+    - Basic Usage: examples/basic-usage.md
+    - Recurring Access: examples/recurring-access.md
+    - Emergency Access: examples/emergency-access.md
+  - API Reference:
+    - Breakglass CRD: api/breakglass-crd.md
+    - Configuration: api/configuration.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Architecture: development/architecture.md
+    - Testing: development/testing.md
+
+# Markdown extensions
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - pymdownx.emoji
+  - pymdownx.arithmatex
+  - pymdownx.caret
+  - pymdownx.critic
+  - pymdownx.details
+  - pymdownx.keys
+  - pymdownx.magiclink
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - tables
+  - toc:
+      permalink: true

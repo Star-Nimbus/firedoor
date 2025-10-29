@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://cloud-nimbus.github.io/firedoor/</loc>
+         <lastmod>2025-10-29</lastmod>
+    </url>
+    <url>
+         <loc>https://cloud-nimbus.github.io/firedoor/api/breakglass-crd/</loc>
+         <lastmod>2025-10-29</lastmod>
+    </url>
+    <url>
+         <loc>https://cloud-nimbus.github.io/firedoor/examples/basic-usage/</loc>
+         <lastmod>2025-10-29</lastmod>
+    </url>
+    <url>
+         <loc>https://cloud-nimbus.github.io/firedoor/getting-started/installation/</loc>
+         <lastmod>2025-10-29</lastmod>
+    </url>
+    <url>
+         <loc>https://cloud-nimbus.github.io/firedoor/getting-started/quick-start/</loc>
+         <lastmod>2025-10-29</lastmod>
+    </url>
+    <url>
+         <loc>https://cloud-nimbus.github.io/firedoor/user-guide/concepts/</loc>
+         <lastmod>2025-10-29</lastmod>
+    </url>
+</urlset>
