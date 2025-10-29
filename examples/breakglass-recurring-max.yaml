@@ -1,0 +1,27 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: recurring-limited-access
+  namespace: firedoor-system
+spec:
+  justification: "Nightly job troubleshooting with automatic expiry"
+  ticketID: "JOB-HEALTH-2025-021"
+  subjects:
+    - kind: User
+      name: "ops@example.com"
+      apiGroup: "rbac.authorization.k8s.io"
+  policy:
+    - namespace: "default"
+      rules:
+        - apiGroups: [""]
+          resources: ["pods", "pods/log"]
+          verbs: ["get", "list"]
+  approval:
+    required: false
+  schedule:
+    start: "2025-03-01T01:00:00Z"
+    duration: "30m"
+    cron: "0 1 * * *"
+    # Automatically stops after three activations; the controller will clean up RBAC
+    # resources once the limit is reached.
+    maxActivations: 3

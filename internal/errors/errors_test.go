@@ -2,7 +2,11 @@ package errors
 
 import (
 	"errors"
+	"net"
 	"testing"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func TestControllerError(t *testing.T) {
@@ -61,41 +65,52 @@ func TestOTelError(t *testing.T) {
 	}
 }
 
-func TestErrorConstants(t *testing.T) {
-	// Test that error constants are not empty
-	if ErrCreateController == "" {
-		t.Error("ErrCreateController should not be empty")
+func TestIsRetryableK8sError(t *testing.T) {
+	gr := schema.GroupResource{Group: "rbac.authorization.k8s.io", Resource: "rolebindings"}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil error", err: nil, want: false},
+		{name: "not found", err: apierrors.NewNotFound(gr, "foo"), want: false},
+		{name: "already exists", err: apierrors.NewAlreadyExists(gr, "foo"), want: false},
+		{name: "forbidden", err: apierrors.NewForbidden(gr, "foo", errors.New("denied")), want: false},
+		{name: "bad request", err: apierrors.NewBadRequest("bad request"), want: false},
+		{name: "timeout", err: apierrors.NewTimeoutError("timed out", 0), want: true},
+		{name: "server timeout", err: apierrors.NewServerTimeout(gr, "update", 1), want: true},
+		{name: "too many requests", err: apierrors.NewTooManyRequests("throttled", 1), want: true},
+		{name: "conflict", err: apierrors.NewConflict(gr, "foo", errors.New("conflict")), want: true},
+		{name: "internal error", err: apierrors.NewInternalError(errors.New("boom")), want: true},
+		{name: "service unavailable", err: apierrors.NewServiceUnavailable("unavailable"), want: true},
+		{name: "network timeout", err: &net.DNSError{IsTimeout: true}, want: true},
 	}
 
-	if ErrStartManager == "" {
-		t.Error("ErrStartManager should not be empty")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsRetryableK8sError(tt.err); got != tt.want {
+				t.Errorf("IsRetryableK8sError() = %v, want %v", got, tt.want)
+			}
+		})
 	}
+}
 
-	if ErrRunManager == "" {
-		t.Error("ErrRunManager should not be empty")
+func TestIsNotFoundError(t *testing.T) {
+	gr := schema.GroupResource{Group: "rbac.authorization.k8s.io", Resource: "rolebindings"}
+	if !IsNotFoundError(apierrors.NewNotFound(gr, "foo")) {
+		t.Fatalf("expected IsNotFoundError to return true")
 	}
-
-	if ErrSetupHealthCheck == "" {
-		t.Error("ErrSetupHealthCheck should not be empty")
+	if IsNotFoundError(apierrors.NewForbidden(gr, "foo", errors.New("denied"))) {
+		t.Fatalf("expected IsNotFoundError to return false")
 	}
+}
 
-	if ErrSetupReadyCheck == "" {
-		t.Error("ErrSetupReadyCheck should not be empty")
+func TestIsAlreadyExistsError(t *testing.T) {
+	gr := schema.GroupResource{Group: "rbac.authorization.k8s.io", Resource: "rolebindings"}
+	if !IsAlreadyExistsError(apierrors.NewAlreadyExists(gr, "foo")) {
+		t.Fatalf("expected IsAlreadyExistsError to return true")
 	}
-
-	if ErrLoadConfig == "" {
-		t.Error("ErrLoadConfig should not be empty")
-	}
-
-	if ErrSetupOTel == "" {
-		t.Error("ErrSetupOTel should not be empty")
-	}
-
-	if ErrShutdownOTel == "" {
-		t.Error("ErrShutdownOTel should not be empty")
-	}
-
-	if ErrDisableHTTP2 == "" {
-		t.Error("ErrDisableHTTP2 should not be empty")
+	if IsAlreadyExistsError(apierrors.NewNotFound(gr, "foo")) {
+		t.Fatalf("expected IsAlreadyExistsError to return false")
 	}
 }

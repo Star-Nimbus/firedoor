@@ -1,0 +1,25 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: one-time-maintenance
+  namespace: firedoor-system
+spec:
+  justification: "Short maintenance window for config update"
+  ticketID: "MAINT-2025-010"
+  subjects:
+    - kind: Group
+      name: "platform-team"
+      apiGroup: "rbac.authorization.k8s.io"
+  policy:
+    - namespace: "default"
+      rules:
+        - apiGroups: [""]
+          resources: ["configmaps"]
+          resourceNames: ["app-config"]
+          verbs: ["get", "update"]
+  approval:
+    required: true
+  schedule:
+    # Grant access once at the scheduled time for 45 minutes.
+    start: "2025-02-01T22:15:00Z"
+    duration: "45m"

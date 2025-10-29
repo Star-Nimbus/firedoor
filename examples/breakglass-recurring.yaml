@@ -1,0 +1,26 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: recurring-daily-window
+  namespace: firedoor-system
+spec:
+  justification: "Grant support access every weekday morning"
+  ticketID: "SUPPORT-2025-015"
+  subjects:
+    - kind: Group
+      name: "support-oncall"
+      apiGroup: "rbac.authorization.k8s.io"
+  policy:
+    - namespace: "kube-system"
+      rules:
+        - apiGroups: [""]
+          resources: ["pods", "pods/log"]
+          verbs: ["get", "list", "watch"]
+  approval:
+    required: false
+  schedule:
+    # First window begins at 08:00 New York time on 3 Feb 2025.
+    start: "2025-02-03T08:00:00-05:00"
+    duration: "90m"
+    cron: "0 8 * * 1-5"
+    location: "America/New_York"

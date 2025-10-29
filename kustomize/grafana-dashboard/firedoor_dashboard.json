@@ -15,7 +15,7 @@
             },
             {
                 "datasource": "$prom",
-                "enable": true,
+                "enable": false,
                 "expr": "firedoor_breakglass_state_total > 0",
                 "fillColor": "rgba(255, 96, 96, 0.1)",
                 "hide": false,
@@ -35,6 +35,9 @@
             "datasource": "$prom",
             "fieldConfig": {
                 "defaults": {
+                    "color": {
+                        "mode": "continuous-GrYlRd"
+                    },
                     "mappings": [],
                     "thresholds": {
                         "mode": "absolute",
@@ -52,18 +55,25 @@
                 "overrides": []
             },
             "gridPos": {
-                "h": 6,
+                "h": 8,
                 "w": 12,
                 "x": 0,
                 "y": 0
             },
-            "id": 1,
+            "id": 6,
             "options": {
-                "colorMode": "value",
-                "graphMode": "area",
-                "justifyMode": "auto",
-                "orientation": "auto",
-                "percentChangeColorMode": "standard",
+                "displayMode": "basic",
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": false
+                },
+                "maxVizHeight": 300,
+                "minVizHeight": 16,
+                "minVizWidth": 8,
+                "namePlacement": "auto",
+                "orientation": "horizontal",
                 "reduceOptions": {
                     "calcs": [
                         "lastNotNull"
@@ -71,19 +81,22 @@
                     "fields": "",
                     "values": false
                 },
-                "showPercentChange": false,
-                "textMode": "auto",
-                "wideLayout": true
+                "showUnfilled": true,
+                "sizing": "auto",
+                "valueMode": "color"
             },
             "pluginVersion": "12.0.2",
             "targets": [
                 {
-                    "expr": "firedoor_breakglass_active",
+                    "editorMode": "code",
+                    "expr": "sum by (operation) (increase(firedoor_breakglass_operations_total[$__range]))\n",
+                    "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Active Breakglass Sessions",
-            "type": "stat"
+            "title": "Operations by Type",
+            "transparent": true,
+            "type": "bargauge"
         },
         {
             "datasource": "$prom",
@@ -104,7 +117,7 @@
                 "overrides": []
             },
             "gridPos": {
-                "h": 6,
+                "h": 8,
                 "w": 12,
                 "x": 12,
                 "y": 0
@@ -116,7 +129,7 @@
                     "placement": "bottom",
                     "showLegend": true
                 },
-                "pieType": "pie",
+                "pieType": "donut",
                 "reduceOptions": {
                     "calcs": [
                         "lastNotNull"
@@ -129,277 +142,19 @@
                     "mode": "single",
                     "sort": "none"
                 }
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "sum by (phase) (firedoor_breakglass_state_total)",
-                    "refId": "A"
-                }
-            ],
-            "title": "Breakglass Requests by Phase",
-            "type": "piechart"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "custom": {
-                        "hideFrom": {
-                            "legend": false,
-                            "tooltip": false,
-                            "viz": false
-                        },
-                        "scaleDistribution": {
-                            "type": "linear"
-                        }
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 12,
-                "x": 0,
-                "y": 6
-            },
-            "id": 6,
-            "options": {
-                "calculate": false,
-                "cellGap": 1,
-                "color": {
-                    "exponent": 0.5,
-                    "fill": "dark-orange",
-                    "mode": "scheme",
-                    "reverse": false,
-                    "scale": "exponential",
-                    "scheme": "Oranges",
-                    "steps": 64
-                },
-                "exemplars": {
-                    "color": "rgba(255,0,255,0.7)"
-                },
-                "filterValues": {
-                    "le": 1e-9
-                },
-                "legend": {
-                    "show": true
-                },
-                "rowsFrame": {
-                    "layout": "auto"
-                },
-                "tooltip": {
-                    "mode": "single",
-                    "showColorScale": false,
-                    "yHistogram": false
-                },
-                "yAxis": {
-                    "axisPlacement": "left",
-                    "reverse": false
-                }
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "sum by (operation) (firedoor_breakglass_operations_total)",
-                    "refId": "A"
-                }
-            ],
-            "title": "Operations by Type",
-            "type": "heatmap"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
-                    "custom": {
-                        "axisBorderShow": false,
-                        "axisCenteredZero": false,
-                        "axisColorMode": "text",
-                        "axisLabel": "",
-                        "axisPlacement": "auto",
-                        "fillOpacity": 80,
-                        "gradientMode": "none",
-                        "hideFrom": {
-                            "legend": false,
-                            "tooltip": false,
-                            "viz": false
-                        },
-                        "lineWidth": 1,
-                        "scaleDistribution": {
-                            "type": "linear"
-                        },
-                        "thresholdsStyle": {
-                            "mode": "off"
-                        }
-                    },
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 12,
-                "x": 12,
-                "y": 6
-            },
-            "id": 102,
-            "options": {
-                "barRadius": 0,
-                "barWidth": 0.97,
-                "fullHighlight": false,
-                "groupWidth": 0.7,
-                "legend": {
-                    "calcs": [],
-                    "displayMode": "list",
-                    "placement": "bottom",
-                    "showLegend": true
-                },
-                "orientation": "auto",
-                "showValue": "auto",
-                "stacking": "none",
-                "tooltip": {
-                    "hideZeros": false,
-                    "mode": "single",
-                    "sort": "none"
-                },
-                "xTickLabelRotation": 0,
-                "xTickLabelSpacing": 0
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "sum by (operation) (firedoor_breakglass_operations_total{result=\"error\",namespace_bucket=~\"$namespace\"})",
-                    "refId": "A"
-                }
-            ],
-            "title": "Failed Operations by Type",
-            "type": "barchart"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 12,
-                "x": 0,
-                "y": 13
-            },
-            "id": 7,
-            "options": {
-                "colorMode": "value",
-                "graphMode": "area",
-                "justifyMode": "auto",
-                "orientation": "auto",
-                "percentChangeColorMode": "standard",
-                "reduceOptions": {
-                    "calcs": [
-                        "lastNotNull"
-                    ],
-                    "fields": "",
-                    "values": false
-                },
-                "showPercentChange": false,
-                "textMode": "auto",
-                "wideLayout": true
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "firedoor_recurring_breakglass_active",
-                    "refId": "A"
-                }
-            ],
-            "title": "Recurring Breakglass Sessions",
-            "type": "stat"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 12,
-                "x": 12,
-                "y": 13
-            },
-            "id": 100,
-            "options": {
-                "colorMode": "value",
-                "graphMode": "area",
-                "justifyMode": "auto",
-                "orientation": "auto",
-                "percentChangeColorMode": "standard",
-                "reduceOptions": {
-                    "calcs": [
-                        "lastNotNull"
-                    ],
-                    "fields": "",
-                    "values": false
-                },
-                "showPercentChange": false,
-                "textMode": "auto",
-                "wideLayout": true
             },
             "pluginVersion": "12.0.2",
             "targets": [
                 {
                     "editorMode": "code",
-                    "expr": "sum(firedoor_breakglass_state_total{phase=\"pending\"})",
+                    "expr": "sum by (phase) (increase(firedoor_breakglass_state_total[$__range]))\n",
                     "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Pending Breakglass Requests",
-            "type": "stat"
+            "title": "Breakglass Requests by Phase",
+            "transparent": true,
+            "type": "piechart"
         },
         {
             "datasource": "$prom",
@@ -417,21 +172,28 @@
                         "barAlignment": 0,
                         "barWidthFactor": 0.6,
                         "drawStyle": "line",
-                        "fillOpacity": 0,
-                        "gradientMode": "none",
+                        "fillOpacity": 25,
+                        "gradientMode": "hue",
                         "hideFrom": {
                             "legend": false,
                             "tooltip": false,
                             "viz": false
                         },
                         "insertNulls": false,
-                        "lineInterpolation": "linear",
+                        "lineInterpolation": "smooth",
+                        "lineStyle": {
+                            "dash": [
+                                10,
+                                10
+                            ],
+                            "fill": "dash"
+                        },
                         "lineWidth": 1,
                         "pointSize": 5,
                         "scaleDistribution": {
                             "type": "linear"
                         },
-                        "showPoints": "auto",
+                        "showPoints": "never",
                         "spanNulls": false,
                         "stacking": {
                             "group": "A",
@@ -461,9 +223,9 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 20
+                "y": 8
             },
-            "id": 11,
+            "id": 1,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -480,11 +242,14 @@
             "pluginVersion": "12.0.2",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.95, sum(rate(firedoor_breakglass_reconcile_duration_seconds_bucket[5m])) by (le, namespace_bucket))",
+                    "editorMode": "code",
+                    "expr": "max_over_time(firedoor_breakglass_active[$__range])\n",
+                    "range": true,
                     "refId": "A"
                 }
             ],
-            "title": "Reconcile Duration by Namespace Bucket (95%)",
+            "title": "Active Breakglass Sessions",
+            "transparent": true,
             "type": "timeseries"
         },
         {
@@ -503,22 +268,29 @@
                         "barAlignment": 0,
                         "barWidthFactor": 0.6,
                         "drawStyle": "line",
-                        "fillOpacity": 0,
-                        "gradientMode": "none",
+                        "fillOpacity": 30,
+                        "gradientMode": "hue",
                         "hideFrom": {
                             "legend": false,
                             "tooltip": false,
                             "viz": false
                         },
                         "insertNulls": false,
-                        "lineInterpolation": "linear",
+                        "lineInterpolation": "smooth",
+                        "lineStyle": {
+                            "dash": [
+                                10,
+                                10
+                            ],
+                            "fill": "dash"
+                        },
                         "lineWidth": 1,
                         "pointSize": 5,
                         "scaleDistribution": {
                             "type": "linear"
                         },
-                        "showPoints": "auto",
-                        "spanNulls": false,
+                        "showPoints": "never",
+                        "spanNulls": true,
                         "stacking": {
                             "group": "A",
                             "mode": "none"
@@ -547,7 +319,101 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 20
+                "y": 8
+            },
+            "id": 7,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.0.2",
+            "targets": [
+                {
+                    "expr": "firedoor_recurring_breakglass_active",
+                    "refId": "A"
+                }
+            ],
+            "title": "Recurring Breakglass Sessions",
+            "transparent": true,
+            "type": "timeseries"
+        },
+        {
+            "datasource": "$prom",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 30,
+                        "gradientMode": "hue",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "smooth",
+                        "lineStyle": {
+                            "dash": [
+                                10,
+                                10
+                            ],
+                            "fill": "dash"
+                        },
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green"
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 16
             },
             "id": 3,
             "options": {
@@ -571,6 +437,7 @@
                 }
             ],
             "title": "Reconcile Duration (95%)",
+            "transparent": true,
             "type": "timeseries"
         },
         {
@@ -586,99 +453,35 @@
                         "axisColorMode": "text",
                         "axisLabel": "",
                         "axisPlacement": "auto",
-                        "fillOpacity": 80,
-                        "gradientMode": "none",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 30,
+                        "gradientMode": "hue",
                         "hideFrom": {
                             "legend": false,
                             "tooltip": false,
                             "viz": false
                         },
+                        "insertNulls": false,
+                        "lineInterpolation": "smooth",
+                        "lineStyle": {
+                            "dash": [
+                                10,
+                                10
+                            ],
+                            "fill": "dash"
+                        },
                         "lineWidth": 1,
+                        "pointSize": 5,
                         "scaleDistribution": {
                             "type": "linear"
                         },
-                        "thresholdsStyle": {
-                            "mode": "off"
-                        }
-                    },
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 8,
-                "w": 12,
-                "x": 0,
-                "y": 28
-            },
-            "id": 101,
-            "options": {
-                "barRadius": 0,
-                "barWidth": 0.97,
-                "fullHighlight": false,
-                "groupWidth": 0.7,
-                "legend": {
-                    "calcs": [],
-                    "displayMode": "list",
-                    "placement": "bottom",
-                    "showLegend": true
-                },
-                "orientation": "auto",
-                "showValue": "auto",
-                "stacking": "none",
-                "tooltip": {
-                    "hideZeros": false,
-                    "mode": "single",
-                    "sort": "none"
-                },
-                "xTickLabelRotation": 0,
-                "xTickLabelSpacing": 0
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "sum by (namespace_bucket) (firedoor_breakglass_operations_total{operation=\"reconcile\",result=\"success\",namespace_bucket=~\"$namespace\"})",
-                    "refId": "A"
-                }
-            ],
-            "title": "Active Policies by Namespace Bucket",
-            "type": "barchart"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
-                    "custom": {
-                        "axisBorderShow": false,
-                        "axisCenteredZero": false,
-                        "axisColorMode": "text",
-                        "axisLabel": "",
-                        "axisPlacement": "auto",
-                        "fillOpacity": 80,
-                        "gradientMode": "none",
-                        "hideFrom": {
-                            "legend": false,
-                            "tooltip": false,
-                            "viz": false
-                        },
-                        "lineWidth": 1,
-                        "scaleDistribution": {
-                            "type": "linear"
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
                         },
                         "thresholdsStyle": {
                             "mode": "off"
@@ -704,187 +507,9 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 28
+                "y": 16
             },
-            "id": 10,
-            "options": {
-                "barRadius": 0,
-                "barWidth": 0.97,
-                "fullHighlight": false,
-                "groupWidth": 0.7,
-                "legend": {
-                    "calcs": [],
-                    "displayMode": "list",
-                    "placement": "bottom",
-                    "showLegend": true
-                },
-                "orientation": "auto",
-                "showValue": "auto",
-                "stacking": "none",
-                "tooltip": {
-                    "hideZeros": false,
-                    "mode": "single",
-                    "sort": "none"
-                },
-                "xTickLabelRotation": 0,
-                "xTickLabelSpacing": 0
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "sum by (namespace_bucket) (firedoor_breakglass_operations_total)",
-                    "refId": "A"
-                }
-            ],
-            "title": "Breakglass Operations by Namespace Bucket",
-            "type": "barchart"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
-                    "custom": {
-                        "axisBorderShow": false,
-                        "axisCenteredZero": false,
-                        "axisColorMode": "text",
-                        "axisLabel": "",
-                        "axisPlacement": "auto",
-                        "fillOpacity": 80,
-                        "gradientMode": "none",
-                        "hideFrom": {
-                            "legend": false,
-                            "tooltip": false,
-                            "viz": false
-                        },
-                        "lineWidth": 1,
-                        "scaleDistribution": {
-                            "type": "linear"
-                        },
-                        "thresholdsStyle": {
-                            "mode": "off"
-                        }
-                    },
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 5,
-                "w": 12,
-                "x": 0,
-                "y": 36
-            },
-            "id": 13,
-            "options": {
-                "barRadius": 0,
-                "barWidth": 0.97,
-                "fullHighlight": false,
-                "groupWidth": 0.7,
-                "legend": {
-                    "calcs": [],
-                    "displayMode": "list",
-                    "placement": "bottom",
-                    "showLegend": true
-                },
-                "orientation": "auto",
-                "showValue": "auto",
-                "stacking": "none",
-                "tooltip": {
-                    "hideZeros": false,
-                    "mode": "single",
-                    "sort": "none"
-                },
-                "xTickLabelRotation": 0,
-                "xTickLabelSpacing": 0
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "sum by (namespace_bucket) (firedoor_breakglass_state_total{phase=\"pending\",namespace_bucket=~\"$namespace\"})",
-                    "refId": "A"
-                }
-            ],
-            "title": "Pending Breakglass Requests by Namespace Bucket",
-            "type": "barchart"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
-                    "custom": {
-                        "axisBorderShow": false,
-                        "axisCenteredZero": false,
-                        "axisColorMode": "text",
-                        "axisLabel": "",
-                        "axisPlacement": "auto",
-                        "barAlignment": 0,
-                        "barWidthFactor": 0.6,
-                        "drawStyle": "line",
-                        "fillOpacity": 0,
-                        "gradientMode": "none",
-                        "hideFrom": {
-                            "legend": false,
-                            "tooltip": false,
-                            "viz": false
-                        },
-                        "insertNulls": false,
-                        "lineInterpolation": "linear",
-                        "lineWidth": 1,
-                        "pointSize": 5,
-                        "scaleDistribution": {
-                            "type": "linear"
-                        },
-                        "showPoints": "auto",
-                        "spanNulls": false,
-                        "stacking": {
-                            "group": "A",
-                            "mode": "none"
-                        },
-                        "thresholdsStyle": {
-                            "mode": "off"
-                        }
-                    },
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 3,
-                "w": 6,
-                "x": 0,
-                "y": 41
-            },
-            "id": 8,
+            "id": 11,
             "options": {
                 "legend": {
                     "calcs": [],
@@ -901,281 +526,28 @@
             "pluginVersion": "12.0.2",
             "targets": [
                 {
-                    "expr": "rate(firedoor_alerts_sent_total[5m])",
+                    "editorMode": "code",
+                    "expr": "avg_over_time(\n  histogram_quantile(\n    0.95,\n    sum(rate(firedoor_breakglass_reconcile_duration_seconds_bucket[5m])) by (le, namespace_bucket)\n  )[5m:]\n)\n",
+                    "range": true,
                     "refId": "A"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "$prom"
+                    },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(\n  0.95,\n  sum(rate(firedoor_breakglass_reconcile_duration_seconds_bucket[5m])) by (le, namespace_bucket)\n)\n",
+                    "hide": false,
+                    "instant": false,
+                    "legendFormat": "__auto",
+                    "range": true,
+                    "refId": "B"
                 }
             ],
-            "title": "Alerts Sent (5m rate)",
+            "title": "Reconcile Duration by Namespace Bucket (95%)",
+            "transparent": true,
             "type": "timeseries"
-        },
-        {
-            "datasource": "$tempo",
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 3,
-                "w": 6,
-                "x": 6,
-                "y": 41
-            },
-            "id": 4,
-            "options": {},
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "service.name = \"firedoor\" and name = \"grantAccess\"",
-                    "queryType": "traceql",
-                    "refId": "A"
-                }
-            ],
-            "title": "Grant Access Spans",
-            "type": "trace"
-        },
-        {
-            "datasource": "$tempo",
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 3,
-                "w": 6,
-                "x": 0,
-                "y": 44
-            },
-            "id": 5,
-            "options": {},
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "service.name = \"firedoor\" and name = \"revokeAccess\"",
-                    "queryType": "traceql",
-                    "refId": "A"
-                }
-            ],
-            "title": "Revoke Access Spans",
-            "type": "trace"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
-                    "custom": {
-                        "axisBorderShow": false,
-                        "axisCenteredZero": false,
-                        "axisColorMode": "text",
-                        "axisLabel": "",
-                        "axisPlacement": "auto",
-                        "barAlignment": 0,
-                        "barWidthFactor": 0.6,
-                        "drawStyle": "line",
-                        "fillOpacity": 0,
-                        "gradientMode": "none",
-                        "hideFrom": {
-                            "legend": false,
-                            "tooltip": false,
-                            "viz": false
-                        },
-                        "insertNulls": false,
-                        "lineInterpolation": "linear",
-                        "lineWidth": 1,
-                        "pointSize": 5,
-                        "scaleDistribution": {
-                            "type": "linear"
-                        },
-                        "showPoints": "auto",
-                        "spanNulls": false,
-                        "stacking": {
-                            "group": "A",
-                            "mode": "none"
-                        },
-                        "thresholdsStyle": {
-                            "mode": "off"
-                        }
-                    },
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 3,
-                "w": 6,
-                "x": 0,
-                "y": 47
-            },
-            "id": 9,
-            "options": {
-                "legend": {
-                    "calcs": [],
-                    "displayMode": "list",
-                    "placement": "bottom",
-                    "showLegend": true
-                },
-                "tooltip": {
-                    "hideZeros": false,
-                    "mode": "single",
-                    "sort": "none"
-                }
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "rate(firedoor_alert_send_errors_total[5m])",
-                    "refId": "A"
-                }
-            ],
-            "title": "Alert Send Errors (5m rate)",
-            "type": "timeseries"
-        },
-        {
-            "datasource": "$tempo",
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 3,
-                "w": 6,
-                "x": 0,
-                "y": 50
-            },
-            "id": 12,
-            "options": {},
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "service.name = \"firedoor\" and name = \"grantAccess\" and \"breakglass.namespaces\" contains \"$namespace\"",
-                    "queryType": "traceql",
-                    "refId": "A"
-                }
-            ],
-            "title": "Grant Access Traces (Filtered by Namespace)",
-            "type": "trace"
-        },
-        {
-            "datasource": "$prom",
-            "fieldConfig": {
-                "defaults": {
-                    "color": {
-                        "mode": "palette-classic"
-                    },
-                    "custom": {
-                        "axisBorderShow": false,
-                        "axisCenteredZero": false,
-                        "axisColorMode": "text",
-                        "axisLabel": "",
-                        "axisPlacement": "auto",
-                        "fillOpacity": 80,
-                        "gradientMode": "none",
-                        "hideFrom": {
-                            "legend": false,
-                            "tooltip": false,
-                            "viz": false
-                        },
-                        "lineWidth": 1,
-                        "scaleDistribution": {
-                            "type": "linear"
-                        },
-                        "thresholdsStyle": {
-                            "mode": "off"
-                        }
-                    },
-                    "mappings": [],
-                    "thresholds": {
-                        "mode": "absolute",
-                        "steps": [
-                            {
-                                "color": "green"
-                            },
-                            {
-                                "color": "red",
-                                "value": 80
-                            }
-                        ]
-                    }
-                },
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 3,
-                "w": 6,
-                "x": 0,
-                "y": 53
-            },
-            "id": 14,
-            "options": {
-                "barRadius": 0,
-                "barWidth": 0.97,
-                "fullHighlight": false,
-                "groupWidth": 0.7,
-                "legend": {
-                    "calcs": [],
-                    "displayMode": "list",
-                    "placement": "bottom",
-                    "showLegend": true
-                },
-                "orientation": "auto",
-                "showValue": "auto",
-                "stacking": "none",
-                "tooltip": {
-                    "hideZeros": false,
-                    "mode": "single",
-                    "sort": "none"
-                },
-                "xTickLabelRotation": 0,
-                "xTickLabelSpacing": 0
-            },
-            "pluginVersion": "12.0.2",
-            "targets": [
-                {
-                    "expr": "sum by (approval_source, namespace_bucket) (firedoor_breakglass_state_total{phase=\"pending\",namespace_bucket=~\"$namespace\"})",
-                    "refId": "A"
-                }
-            ],
-            "title": "Pending Requests by Approval Source and Namespace",
-            "type": "barchart"
-        },
-        {
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "gridPos": {
-                "h": 3,
-                "w": 6,
-                "x": 0,
-                "y": 56
-            },
-            "id": 15,
-            "options": {
-                "code": {
-                    "language": "plaintext",
-                    "showLineNumbers": false,
-                    "showMiniMap": false
-                },
-                "content": "Metrics bucket namespaces into 16 values (`ns_00`..`ns_0f`) using an FNV hash. Compute a bucket with `telemetry.NamespaceBucket(<namespace>)`. See docs/telemetry.md for details.",
-                "mode": "markdown"
-            },
-            "pluginVersion": "12.0.2",
-            "title": "Namespace Bucket Mapping",
-            "type": "text"
         }
     ],
     "preload": false,
@@ -1230,5 +602,5 @@
     "timezone": "",
     "title": "Firedoor Breakglass Dashboard",
     "uid": "firedoor-dashboard",
-    "version": 1
+    "version": 3
 }

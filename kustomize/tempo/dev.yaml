@@ -45,7 +45,7 @@ externalRuntimeConfigName: '{{ include "tempo.resourceName" (dict "ctx" . "compo
 externalConfigVersion: '0'
 
 # -- If true, Tempo will report anonymous usage data about the shape of a deployment to Grafana Labs
-reportingEnabled: true
+reportingEnabled: false
 
 tempo:
   image:
@@ -166,13 +166,7 @@ ingester:
   # -- Environment variables from secrets or configmaps to add to the ingester pods
   extraEnvFrom: []
   # -- Resource requests and limits for the ingester
-  resources:
-    requests:
-      cpu: 100m
-      memory: 1Gi
-    limits:
-      cpu: 200m
-      memory: 2Gi
+  resources: {}
 
   # -- Grace period to allow the ingester to shutdown before it is killed. Especially for the ingestor,
   # this must be increased. It must be long enough so ingesters can be gracefully shutdown flushing/transferring
@@ -551,13 +545,7 @@ distributor:
   # -- Containers to add to the distributor pod
   extraContainers: []
   # -- Resource requests and limits for the distributor
-  resources:
-    requests:
-      cpu: 100m
-      memory: 1Gi
-    limits:
-      cpu: 200m
-      memory: 2Gi
+  resources: {}
   # -- Grace period to allow the distributor to shutdown before it is killed
   terminationGracePeriodSeconds: 30
   # -- topologySpread for distributor pods. Passed through `tpl` and, thus, to be configured as string
@@ -726,13 +714,7 @@ compactor:
   # -- Containers to add to the compactor pod
   extraContainers: []
   # -- Resource requests and limits for the compactor
-  resources:
-    requests:
-      cpu: 100m
-      memory: 1Gi
-    limits:
-      cpu: 200m
-      memory: 2Gi
+  resources: {}
   # -- Grace period to allow the compactor to shutdown before it is killed
   terminationGracePeriodSeconds: 30
   # -- Pod Disruption Budget maxUnavailable
@@ -825,13 +807,7 @@ querier:
   # -- Environment variables from secrets or configmaps to add to the querier pods
   extraEnvFrom: []
   # -- Resource requests and limits for the querier
-  resources:
-    requests:
-      cpu: 100m
-      memory: 1Gi
-    limits:
-      cpu: 200m
-      memory: 2Gi
+  resources: {}
   # -- Grace period to allow the querier to shutdown before it is killed
   terminationGracePeriodSeconds: 30
   # -- topologySpread for querier pods. Passed through `tpl` and, thus, to be configured as string
@@ -914,13 +890,7 @@ queryFrontend:
       # -- Docker image tag for the tempo-query image. Overrides `tempo.image.tag`
       tag: null
     # -- Resource requests and limits for the query
-    resources:
-      requests:
-        cpu: 100m
-        memory: 1Gi
-      limits:
-        cpu: 200m
-        memory: 2Gi
+    resources: {}
     # -- Additional CLI args for tempo-query pods
     extraArgs: []
     # -- Environment variables to add to the tempo-query pods
@@ -1703,7 +1673,7 @@ per_tenant_overrides:
 # you can use your self memcacherd by set enable: false and host + service
 memcached:
   # -- Specified whether the memcached cachce should be enabled
-  enabled: true
+  enabled: false
   image:
     # -- The Docker registry for the Memcached image. Overrides `global.image.registry`
     registry: null
@@ -1731,13 +1701,7 @@ memcached:
   # -- Annotations for memcached pods
   podAnnotations: {}
   # -- Resource requests and limits for memcached
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 100m
-      memory: 256Mi
+  resources: {}
 
   # -- topologySpread for memcached pods. Passed through `tpl` and, thus, to be configured as string
   # @default -- Defaults to allow skew no more than 1 node per AZ
@@ -1965,10 +1929,7 @@ minio:
       purge: false
   persistence:
     size: 5Gi
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
+  resources: {}
   # Changed the mc config path to '/tmp' from '/etc' as '/etc' is only writable by root and OpenShift will not permit this.
   configPathmc: '/tmp/minio/mc/'
 
@@ -2478,11 +2439,7 @@ adminApi:
       port: http-metrics
     initialDelaySeconds: 45
 
-  resources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-
+  resources: {}
   terminationGracePeriodSeconds: 60
 
   tolerations: []
@@ -2591,10 +2548,7 @@ enterpriseGateway:
       port: http-metrics
     initialDelaySeconds: 45
 
-  resources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
+  resources: {}
 
   terminationGracePeriodSeconds: 60
 

@@ -18,8 +18,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Breakglass is the Schema for the breakglass API, representing
-          a single emergency access request.
+        description: Breakglass is the Schema for the breakglasses API
         properties:
           apiVersion:
             description: |-
@@ -42,159 +41,173 @@ spec:
             description: BreakglassSpec defines the desired state of a Breakglass
               access request.
             properties:
-              accessPolicy:
-                description: |-
-                  AccessPolicy specifies inline RBAC rules (permissions) to grant.
-                  If provided, the operator will create a temporary Role/ClusterRole with these rules.
+              approval:
+                description: Approval requirements.
                 properties:
-                  rules:
-                    description: |-
-                      Rules is the list of access rules (verbs, resources, etc.) that define the permissions.
-                      Each rule is analogous to a single RBAC policy rule.
-                    items:
-                      description: AccessRule describes a single permission rule to
-                        be granted.
-                      properties:
-                        actions:
-                          description: Actions (verbs) allowed, e.g., ["get", "list",
-                            "update"].
-                          items:
-                            description: Action (aka Verb) defines valid Kubernetes
-                              API actions for a rule.
-                            enum:
-                            - get
-                            - list
-                            - create
-                            - update
-                            - patch
-                            - delete
-                            - watch
-                            type: string
-                          type: array
-                        apiGroups:
-                          description: |-
-                            APIGroups of the resources (e.g., ["", "apps"] for core or named API groups).
-                            Use "" for core API group resources.
-                          items:
-                            type: string
-                          type: array
-                        namespaces:
-                          description: |-
-                            Namespaces to which this rule applies. If specified, access is limited to these namespaces.
-                            If empty, the rule applies cluster-wide or to cluster-scoped resources.
-                            (For cluster-scoped resources like "nodes", leave this empty or use cluster-wide bindings.)
-                          items:
-                            type: string
-                          type: array
-                        resourceNames:
-                          description: |-
-                            ResourceNames restricts the rule to specific resource instances by name (e.g., ["my-configmap"]).
-                            If empty or unspecified, the rule applies to all objects of the given resource types.
-                          items:
-                            type: string
-                          type: array
-                        resources:
-                          description: |-
-                            Resources to which the actions apply (e.g., ["pods", "deployments"]).
-                            Subresources can be specified as "resource/subresource" (e.g., "pods/log").
-                          items:
-                            type: string
-                          type: array
-                      type: object
-                    type: array
+                  required:
+                    default: true
+                    description: Required indicates whether manual approval is required.
+                    type: boolean
+                required:
+                - required
                 type: object
-              approvalRequired:
-                description: |-
-                  ApprovalRequired indicates if manual approval by a privileged user is needed before access is activated.
-                  Recommended to default to true for safety.
-                type: boolean
               clusterRoles:
-                description: |-
-                  ClusterRoles lists existing ClusterRole names to bind to the subjects for the duration.
-                  Use this to grant pre-defined roles (e.g., "cluster-admin") without specifying custom rules.
                 items:
                   type: string
                 type: array
-              duration:
-                description: |-
-                  Duration is the requested length of time that access should be active (e.g., "1h", "30m").
-                  After this duration, the access will expire automatically.
-                  Uses Kubernetes duration format (Go metav1.Duration).
-                type: string
               justification:
-                description: |-
-                  Justification is a **required** explanation of why this access is needed.
-                  This should be a clear, specific reason and may be logged for audit purposes.
-                  (e.g., "Production outage troubleshooting - need access to restart pods").
+                description: A clear, human-readable justification is required.
                 minLength: 1
                 type: string
-              recurrenceSchedule:
+              policy:
                 description: |-
-                  RecurrenceSchedule defines an optional schedule (cron expression or interval) for recurring access activations.
-                  For example, a cron string to allow access every weekday at 9AM. This field is used only if Recurring is true.
-                type: string
-              recurring:
-                description: |-
-                  Recurring indicates if the access request is recurring (e.g., a standing approval for repeated use).
-                  If true, the operator may allow this access to be reactivated on a schedule or manually without a new request.
-                type: boolean
+                  Either specify an ad-hoc policy or reuse existing ClusterRoles by name.
+                  Exactly one must be set.
+                items:
+                  description: Policy defines RBAC rules with optional namespace scoping.
+                  properties:
+                    namespace:
+                      description: Namespace scope for this policy. Empty means cluster-scoped.
+                      type: string
+                    rules:
+                      description: RBAC policy rules.
+                      items:
+                        description: |-
+                          PolicyRule holds information that describes a policy rule, but does not contain information
+                          about who the rule applies to or which namespace the rule applies to.
+                        properties:
+                          apiGroups:
+                            description: |-
+                              APIGroups is the name of the APIGroup that contains the resources.  If multiple API groups are specified, any action requested against one of
+                              the enumerated resources in any API group will be allowed. "" represents the core API group and "*" represents all API groups.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          nonResourceURLs:
+                            description: |-
+                              NonResourceURLs is a set of partial urls that a user should have access to.  *s are allowed, but only as the full, final step in the path
+                              Since non-resource URLs are not namespaced, this field is only applicable for ClusterRoles referenced from a ClusterRoleBinding.
+                              Rules can either apply to API resources (such as "pods" or "secrets") or non-resource URL paths (such as "/api"),  but not both.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          resourceNames:
+                            description: ResourceNames is an optional white list of
+                              names that the rule applies to.  An empty set means
+                              that everything is allowed.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          resources:
+                            description: Resources is a list of resources this rule
+                              applies to. '*' represents all resources.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          verbs:
+                            description: Verbs is a list of Verbs that apply to ALL
+                              the ResourceKinds contained in this rule. '*' represents
+                              all verbs.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                        - verbs
+                        type: object
+                      minItems: 1
+                      type: array
+                  required:
+                  - rules
+                  type: object
+                type: array
+              schedule:
+                description: Schedule defines the breakglass activation window with
+                  optional cron recurrence.
+                properties:
+                  cron:
+                    description: |-
+                      Optional cron schedule for recurring activations (min hour dom month ).
+                      If omitted, the schedule is a one-time activation.
+                    type: string
+                  duration:
+                    description: Duration after which access is revoked. If omitted
+                    type: string
+                  location:
+                    description: Time zone location (IANA format, e.g., "America/New_York").
+                      Defaults to UTC.
+                    type: string
+                  maxActivations:
+                    description: |-
+                      Maximum activations. Schedule stops after reaching this count.
+                      Only applicable if Cron is set.
+                    format: int32
+                    type: integer
+                  start:
+                    description: Start time (RFC3339 format) when schedule becomes
+                      active used for oneshots.
+                    format: date-time
+                    type: string
+                type: object
               subjects:
                 description: |-
-                  Subjects defines the users or groups to grant temporary access to.
-                  Each subject is specified by kind (User, Group, or ServiceAccount) and name.
-                  Only Kubernetes RBAC subjects are supported (e.g., User or Group names as known to the cluster).
+                  Subjects defines the users/groups/service accounts to grant temporary access.
+                  At least one subject is required.
                 items:
-                  description: SubjectRef represents a subject (user, group, or service
-                    account) for RBAC.
+                  description: |-
+                    Subject contains a reference to the object or user identities a role binding applies to.  This can either hold a direct API object reference,
+                    or a value for non-objects such as user and group names.
                   properties:
+                    apiGroup:
+                      description: |-
+                        APIGroup holds the API group of the referenced subject.
+                        Defaults to "" for ServiceAccount subjects.
+                        Defaults to "rbac.authorization.k8s.io" for User and Group subjects.
+                      type: string
                     kind:
-                      description: Kind of subject (e.g., "User", "Group", or "ServiceAccount").
+                      description: |-
+                        Kind of object being referenced. Values defined by this API group are "User", "Group", and "ServiceAccount".
+                        If the Authorizer does not recognized the kind value, the Authorizer should report an error.
                       type: string
                     name:
-                      description: Name of the user, group, or service account.
+                      description: Name of the object being referenced.
                       type: string
                     namespace:
-                      description: Namespace for ServiceAccount subjects (optional;
-                        not used for User or Group kinds).
+                      description: |-
+                        Namespace of the referenced object.  If the object kind is non-namespace, such as "User" or "Group", and this value is not empty
+                        the Authorizer should report an error.
                       type: string
                   required:
                   - kind
                   - name
                   type: object
+                  x-kubernetes-map-type: atomic
                 minItems: 1
                 type: array
               ticketID:
-                description: |-
-                  TicketID (optional) links to an external incident or change ticket for this request.
-                  This provides traceability to external audit systems.
+                description: Optional external ticket identifier.
                 type: string
             required:
             - justification
+            - schedule
+            - subjects
             type: object
           status:
             description: BreakglassStatus defines the observed state of Breakglass
               (set by the operator).
             properties:
               activationCount:
-                description: |-
-                  ActivationCount tracks the number of times this recurring breakglass has been activated.
-                  This helps with monitoring and debugging recurring access patterns.
                 format: int32
                 type: integer
-              approvedAt:
-                description: ApprovedAt is the timestamp when the request was approved.
-                  Nil if not yet approved or if auto-approved.
-                format: date-time
-                type: string
               approvedBy:
-                description: |-
-                  ApprovedBy records the username or identity of the approver who approved the request.
-                  For auto-approved requests, this could be set to a system identity.
+                description: ApprovedBy is the username or identity that approved
+                  the breakglass request.
                 type: string
               conditions:
-                description: |-
-                  Conditions represent the current conditions of the request (for Kubernetes standard Condition reporting).
-                  Example conditions might include "Approved" or "Expired" with True/False status.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -263,33 +276,27 @@ spec:
                   - type
                   type: object
                 type: array
+              createdResources:
+                description: CreatedResources tracks the names of RBAC resources created
+                  by this breakglass.
+                items:
+                  type: string
+                type: array
               expiresAt:
-                description: |-
-                  ExpiresAt is the timestamp when the access is scheduled to expire (GrantedAt + Duration).
-                  The operator should revoke access at or after this time if the request is active.
                 format: date-time
                 type: string
               grantedAt:
-                description: |-
-                  GrantedAt is the timestamp when access was actually granted (activated).
-                  In many cases this will equal ApprovedAt, but if there is a delay or scheduled start, it may differ.
-                format: date-time
-                type: string
-              lastActivationAt:
-                description: LastActivationAt is the timestamp of the most recent
-                  activation for recurring breakglass requests.
                 format: date-time
                 type: string
               nextActivationAt:
-                description: |-
-                  NextActivationAt is the timestamp when the next recurring activation should occur.
-                  This is calculated based on the RecurrenceSchedule and is only set for recurring breakglass requests.
+                description: Optional tracking for recurring requests.
                 format: date-time
                 type: string
-              phase:
-                description: Phase is the current state of the request (Pending, Active,
-                  Expired, Denied, Failed or Revoked).
-                type: string
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
             type: object
         type: object
     served: true

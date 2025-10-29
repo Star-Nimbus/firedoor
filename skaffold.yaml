@@ -64,6 +64,7 @@ deploy:
         chartPath: charts/firedoor/
         namespace: firedoor-system
         createNamespace: true
+        upgradeOnChange: true
         setValueTemplates:
           image.repository: "{{.IMAGE_REPO_star_nimbus_io_firedoor_operator}}"
           image.tag: "{{.IMAGE_TAG_star_nimbus_io_firedoor_operator}}@{{.IMAGE_DIGEST_star_nimbus_io_firedoor_operator}}"

@@ -4,43 +4,24 @@ metadata:
   name: weekend-maintenance-access
   namespace: firedoor-system
 spec:
-  approvalRequired: true
-  duration: 4h
   justification: "Weekend maintenance access for infrastructure team"
-  recurring: true
-  
-  # Cron expression for weekends (Saturday and Sunday at 2 AM UTC)
-  # Format: "minute hour day month weekday timezone"
-  recurrenceSchedule: "0 2 * * 6,0 UTC"
-  
+  ticketID: "WEEKEND-7777"
   subjects:
     - kind: Group
       name: "infrastructure-team"
-    - kind: Group
-      name: "oncall-engineers"
-  
-  accessPolicy:
-    rules:
-      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
-        resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
-        apiGroups: [""]
-        namespaces: ["default", "monitoring", "logging", "infrastructure"]
+      apiGroup: "rbac.authorization.k8s.io"
+  policy:
+    - namespace: "default"
+      rules:
+        - verbs: ["get", "list", "watch"]
+          resources: ["pods", "services"]
+          apiGroups: [""]
+          resourceNames: []
+  approval:
+    required: true
+  schedule:
+    start: "2024-06-01T02:00:00Z"
+    cron: "0 2 * * 6,0"
+    location: "UTC"
+    maxActivations: 5
       
-      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
-        resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
-        apiGroups: ["apps"]
-        namespaces: ["default", "monitoring", "infrastructure"]
-      
-      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
-        resources: ["persistentvolumeclaims", "persistentvolumes"]
-        apiGroups: [""]
-        namespaces: ["default", "monitoring", "infrastructure"]
-      
-      - actions: ["get", "list", "watch"]
-        resources: ["nodes", "namespaces"]
-        apiGroups: [""]
-      
-      - actions: ["get", "list", "watch"]
-        resources: ["events"]
-        apiGroups: [""]
-        namespaces: ["default", "monitoring", "logging", "infrastructure"] 
