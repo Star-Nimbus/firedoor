@@ -37,7 +37,6 @@ build:
         env:
           - CGO_ENABLED=0
 deploy:
-  kubectl: {}
   helm:
     releases:
       - name: monitoring
@@ -65,6 +64,7 @@ deploy:
         chartPath: charts/firedoor/
         namespace: firedoor-system
         createNamespace: true
+        upgradeOnChange: true
         setValueTemplates:
           image.repository: "{{.IMAGE_REPO_star_nimbus_io_firedoor_operator}}"
           image.tag: "{{.IMAGE_TAG_star_nimbus_io_firedoor_operator}}@{{.IMAGE_DIGEST_star_nimbus_io_firedoor_operator}}"
@@ -139,7 +139,12 @@ profiles:
       kustomize:
         paths:
           - kustomize/tempo
+          - kustomize/grafana-dashboard
   - name: metrics
+    manifests:
+      kustomize:
+        paths:
+          - kustomize/grafana-dashboard
     patches:
       - op: replace
         path: /deploy/helm/releases/3/valuesFiles/0
@@ -150,6 +155,7 @@ profiles:
       # remove tempo
       - op: remove
         path: /deploy/helm/releases/1
+
   - name: dev
     patches:
       - op: replace

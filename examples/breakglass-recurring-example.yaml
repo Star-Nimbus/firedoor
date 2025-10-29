@@ -1,0 +1,33 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: recurring-debug-access
+  namespace: firedoor-system
+spec:
+  justification: "Recurring access for development team during business hours"
+  ticketID: "RECURRING-9999"
+  subjects:
+    - kind: User
+      name: "mail@matthewmcleod.co.uk"
+      apiGroup: "rbac.authorization.k8s.io"
+    - kind: Group
+      name: "developers"
+      apiGroup: "rbac.authorization.k8s.io"
+    - kind: Group
+      name: "sre-team"
+      apiGroup: "rbac.authorization.k8s.io"
+  policy:
+    - namespace: "default"
+      rules:
+        - verbs: ["get", "list", "watch"]
+          resources: ["pods", "services", "endpoints"]
+          apiGroups: [""]
+          resourceNames: []
+  approval:
+    required: false
+  schedule:
+    start: "2024-01-01T09:00:00-05:00"
+    cron: "0 9 * * 1-5"
+    location: "America/New_York"
+    maxActivations: 10
+    

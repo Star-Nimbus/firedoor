@@ -1,0 +1,33 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: example-breakglass
+  namespace: firedoor-system
+spec:
+  justification: Standard maintenance window
+  ticketID: PROD-1235
+  subjects:
+    - kind: User
+      name: mail@matthewmcleod.co.uk
+      apiGroup: rbac.authorization.k8s.io
+  policy:
+    - namespace: default
+      rules:
+        - apiGroups: [""]
+          resources: [pods, services]
+          verbs: [get, list, watch]
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [app-config, debug-config]
+          verbs: [get, list, create, update, patch, delete]
+    - namespace: kube-system
+      rules:
+        - apiGroups: [""]
+          resources: [pods, services]
+          verbs: [get, list, watch]
+  approval:
+    required: false
+  schedule:
+    # Every 5 minutes
+    cron: "*/5 * * * *"
+    duration: "1m"

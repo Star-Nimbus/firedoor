@@ -42,6 +42,9 @@ type OTelConfig struct {
 	Exporter string `mapstructure:"exporter"`
 	Endpoint string `mapstructure:"endpoint"`
 	Service  string `mapstructure:"service"`
+	LogLevel string `mapstructure:"log_level"`
+	// TLS configuration for OTLP exporters
+	TLS TLSConfig `mapstructure:"tls"`
 }
 
 // ManagerConfig holds manager-specific configuration
@@ -75,6 +78,7 @@ type ControllerConfig struct {
 	ReconcileTimeout    time.Duration `mapstructure:"reconcile_timeout"`
 	RetryDelay          time.Duration `mapstructure:"retry_delay"`
 	PrivilegeEscalation bool          `mapstructure:"privilege_escalation"`
+	Backoff             time.Duration `mapstructure:"backoff"`
 }
 
 // ServerConfig holds server-specific configuration
@@ -191,6 +195,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("otel.exporter", defaults.OTel.Exporter)
 	v.SetDefault("otel.endpoint", defaults.OTel.Endpoint)
 	v.SetDefault("otel.service", defaults.OTel.Service)
+	v.SetDefault("otel.log_level", defaults.OTel.LogLevel)
+	v.SetDefault("otel.tls.insecure_skip_verify", defaults.OTel.TLS.InsecureSkipVerify)
+	v.SetDefault("otel.tls.ca_file", defaults.OTel.TLS.CAFile)
+	v.SetDefault("otel.tls.cert_file", defaults.OTel.TLS.CertFile)
+	v.SetDefault("otel.tls.key_file", defaults.OTel.TLS.KeyFile)
 
 	// Manager defaults
 	v.SetDefault("manager.leader_elect", defaults.Manager.LeaderElect)
@@ -212,6 +221,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("controller.reconcile_timeout", defaults.Controller.ReconcileTimeout)
 	v.SetDefault("controller.retry_delay", defaults.Controller.RetryDelay)
 	v.SetDefault("controller.privilege_escalation", defaults.Controller.PrivilegeEscalation)
+	v.SetDefault("controller.backoff", 10*time.Second)
 
 	// Server defaults
 	v.SetDefault("server.metrics_bind_address", defaults.Server.MetricsBindAddress)
@@ -242,6 +252,20 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("metrics.duration_bucket_count must be greater than 0")
 	}
 
+	// Validate log level
+	if c.OTel.LogLevel != "" {
+		validLevels := map[string]bool{
+			"debug":   true,
+			"info":    true,
+			"warn":    true,
+			"warning": true,
+			"error":   true,
+		}
+		if !validLevels[c.OTel.LogLevel] {
+			return fmt.Errorf("invalid log level: %s (valid levels: debug, info, warn, error)", c.OTel.LogLevel)
+		}
+	}
+
 	return nil
 }
 
@@ -263,6 +287,13 @@ func NewDefaultConfig() *Config {
 			Exporter: defaults.OTel.Exporter,
 			Endpoint: defaults.OTel.Endpoint,
 			Service:  defaults.OTel.Service,
+			LogLevel: defaults.OTel.LogLevel,
+			TLS: TLSConfig{
+				InsecureSkipVerify: defaults.OTel.TLS.InsecureSkipVerify,
+				CAFile:             defaults.OTel.TLS.CAFile,
+				CertFile:           defaults.OTel.TLS.CertFile,
+				KeyFile:            defaults.OTel.TLS.KeyFile,
+			},
 		},
 		Manager: ManagerConfig{
 			LeaderElect: defaults.Manager.LeaderElect,
@@ -284,6 +315,7 @@ func NewDefaultConfig() *Config {
 			ReconcileTimeout:    defaults.Controller.ReconcileTimeout,
 			RetryDelay:          defaults.Controller.RetryDelay,
 			PrivilegeEscalation: defaults.Controller.PrivilegeEscalation,
+			Backoff:             10 * time.Second,
 		},
 		Server: ServerConfig{
 			MetricsBindAddress:     defaults.Server.MetricsBindAddress,

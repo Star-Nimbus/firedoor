@@ -23,13 +23,21 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/cloud-nimbus/firedoor/internal/telemetry/metrics"
 )
+
+// RecordOperation records an operation in the operations_total metric
+func RecordOperation(op metrics.Op, result metrics.Result, component metrics.Component, namespace, name string) {
+	// This is a no-op implementation for now
+	// In a real implementation, this would record to Prometheus metrics
+}
 
 // RecordAlertDelivery records alert delivery attempts in the operations_total metric.
 // destination: e.g., "slack", "pagerduty", "email"
 // result: ResultSuccess or ResultError
-func RecordAlertDelivery(destination string, result Result) {
-	RecordOperation(OpAlert, result, ComponentController, "n/a", "")
+func RecordAlertDelivery(destination string, result metrics.Result) {
+	RecordOperation(metrics.OpAlert, result, metrics.ComponentController, "n/a", "")
 }
 
 // TraceAlertDelivery emits a span or event for alert delivery attempts.
@@ -39,8 +47,14 @@ func RecordAlertDelivery(destination string, result Result) {
 // alertType: e.g., "breakglass_active", "breakglass_expired"
 // result: ResultSuccess or ResultError
 // duration: time taken to send the alert (seconds)
-func TraceAlertDelivery(ctx context.Context, tracer trace.Tracer, destination, alertType string, result Result, duration time.Duration) {
-	ctx, span := tracer.Start(ctx, "notify."+destination,
+func TraceAlertDelivery(
+	ctx context.Context,
+	tracer trace.Tracer,
+	destination, alertType string,
+	result metrics.Result,
+	duration time.Duration,
+) {
+	_, span := tracer.Start(ctx, "notify."+destination,
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("alert.type", alertType),
@@ -48,10 +62,9 @@ func TraceAlertDelivery(ctx context.Context, tracer trace.Tracer, destination, a
 			attribute.Float64("duration_sec", duration.Seconds()),
 		),
 	)
-	if result == ResultError {
+	if result == metrics.ResultError {
 		span.SetStatus(codes.Error, "alert delivery failed")
 	} else {
 		span.SetStatus(codes.Ok, "")
 	}
-	defer span.End()
 }

@@ -1,5 +1,11 @@
 package errors
 
+import (
+	"net"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+)
+
 // Error messages for controller operations
 const (
 	// Controller errors
@@ -108,4 +114,60 @@ func NewOTelError(operation string, err error) *OTelError {
 		Operation: operation,
 		Err:       err,
 	}
+}
+
+// IsRetryableK8sError determines if a Kubernetes API error should be retried
+func IsRetryableK8sError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Treat clearly permanent client-side errors as non-retryable.
+	switch {
+	case IsNotFoundError(err),
+		IsAlreadyExistsError(err),
+		apierrors.IsBadRequest(err),
+		apierrors.IsInvalid(err),
+		apierrors.IsMethodNotSupported(err),
+		apierrors.IsNotAcceptable(err),
+		apierrors.IsRequestEntityTooLargeError(err),
+		apierrors.IsUnsupportedMediaType(err),
+		apierrors.IsUnauthorized(err),
+		apierrors.IsForbidden(err),
+		apierrors.IsGone(err),
+		apierrors.IsResourceExpired(err):
+		return false
+	}
+
+	// Known transient server-side conditions.
+	if apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		apierrors.IsInternalError(err) ||
+		apierrors.IsUnexpectedServerError(err) ||
+		apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsConflict(err) ||
+		apierrors.IsStoreReadError(err) {
+		return true
+	}
+
+	// Network errors that are temporary or timeouts should be retried.
+	if ne, ok := err.(net.Error); ok {
+		if ne.Timeout() || ne.Temporary() {
+			return true
+		}
+	}
+
+	// Default to retrying unknown errors to avoid missing transient conditions.
+	return true
+}
+
+// IsNotFoundError checks if an error is a "not found" error
+func IsNotFoundError(err error) bool {
+	return apierrors.IsNotFound(err)
+}
+
+// IsAlreadyExistsError checks if an error is an "already exists" error
+func IsAlreadyExistsError(err error) bool {
+	return apierrors.IsAlreadyExists(err)
 }

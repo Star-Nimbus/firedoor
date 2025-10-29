@@ -9,8 +9,6 @@ rules:
   resources:
   - breakglasses
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
@@ -19,17 +17,12 @@ rules:
 - apiGroups:
   - access.cloudnimbus.io
   resources:
-  - breakglasses/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - access.cloudnimbus.io
-  resources:
   - breakglasses/status
   verbs:
   - get
   - patch
   - update
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -41,29 +34,8 @@ rules:
   - rbac.authorization.k8s.io
   resources:
   - clusterrolebindings
-  verbs:
-  - create
-  - delete
-  - get
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
   - clusterroles
-  verbs:
-  - create
-  - delete
-  - get
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
   - rolebindings
-  verbs:
-  - create
-  - delete
-  - get
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
   - roles
   verbs:
   - create

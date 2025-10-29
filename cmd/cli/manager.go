@@ -19,8 +19,7 @@ package cli
 import (
 	"context"
 	"crypto/tls"
-	"flag"
-	"time"
+	"fmt"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -31,19 +30,19 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel"
 
 	accessv1alpha1 "github.com/cloud-nimbus/firedoor/api/v1alpha1"
+	"github.com/cloud-nimbus/firedoor/internal/clock"
 	"github.com/cloud-nimbus/firedoor/internal/config"
 	"github.com/cloud-nimbus/firedoor/internal/constants"
-	"github.com/cloud-nimbus/firedoor/internal/controller"
+	"github.com/cloud-nimbus/firedoor/internal/controller/breakglass"
 	"github.com/cloud-nimbus/firedoor/internal/errors"
+	"github.com/cloud-nimbus/firedoor/internal/operator/recurring"
 	"github.com/cloud-nimbus/firedoor/internal/telemetry"
 	//+kubebuilder:scaffold:imports
 )
@@ -83,76 +82,40 @@ func newManagerCmd() *cobra.Command {
 }
 
 func runManager(ctx context.Context, cfg *config.Config, logLevel string) error {
-	// Set up logger with log level
-	opts := telemetry.ConfigureZapLogger(logLevel)
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
-	var metricsAddr string
-	var probeAddr string
-	var enableLeaderElection bool
-	var secureMetrics bool
-	var enableHTTP2 bool
-	var tlsOpts []func(*tls.Config)
-
-	// Use config values
-	metricsAddr = cfg.Metrics.BindAddress
-	probeAddr = cfg.Health.ProbeBindAddress
-	enableLeaderElection = cfg.Manager.LeaderElect
-	secureMetrics = cfg.Metrics.Secure
-	enableHTTP2 = cfg.HTTP.EnableHTTP2
-
-	// Setup OpenTelemetry if enabled
-	if cfg.OTel.Enabled {
-		setupLog.Info("Setting up OpenTelemetry", "exporter", cfg.OTel.Exporter, "endpoint", cfg.OTel.Endpoint)
-
-		tp, err := telemetry.SetupOTel(ctx, cfg.OTel.Exporter, cfg.OTel.Endpoint, cfg.OTel.Service)
-		if err != nil {
-			setupLog.Error(err, errors.ErrSetupOTel)
-			return err
-		}
-
-		otel.SetTracerProvider(tp)
-
-		// Ensure tracer provider is shutdown on exit
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := tp.Shutdown(shutdownCtx); err != nil {
-				setupLog.Error(err, errors.ErrShutdownOTel)
-			}
-		}()
+	// Setup telemetry (logging, tracing, and metrics)
+	effectiveLogLevel := logLevel
+	if cfg.OTel.LogLevel != "" {
+		effectiveLogLevel = cfg.OTel.LogLevel
 	}
-
-	// if the enable-http2 flag is false (the default), http/2 should be disabled
-	// due to its vulnerabilities. More specifically, disabling http/2 will
-	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
-	// Rapid Reset CVEs. For more information see:
-	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
-	// - https://github.com/advisories/GHSA-4374-p667-p6c8
-	disableHTTP2 := func(c *tls.Config) {
-		setupLog.Info(errors.ErrDisableHTTP2)
-		c.NextProtos = []string{"http/1.1"}
+	shutdown, err := telemetry.Setup(
+		ctx, cfg, "firedoor", "v1.0.0", effectiveLogLevel,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to setup telemetry: %w", err)
 	}
+	defer shutdown()
 
+	metricsAddr := cfg.Metrics.BindAddress
+	probeAddr := cfg.Health.ProbeBindAddress
+	enableLeaderElection := cfg.Manager.LeaderElect
+	secureMetrics := cfg.Metrics.Secure
+	enableHTTP2 := cfg.HTTP.EnableHTTP2
+
+	tlsOpts := []func(*tls.Config){}
 	if !enableHTTP2 {
-		tlsOpts = append(tlsOpts, disableHTTP2)
+		tlsOpts = append(tlsOpts, func(c *tls.Config) {
+			setupLog.Info(errors.ErrDisableHTTP2)
+			c.NextProtos = []string{"http/1.1"}
+		})
 	}
 
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: tlsOpts,
-	})
-
+	webhookServer := webhook.NewServer(webhook.Options{TLSOpts: tlsOpts})
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,
 		TLSOpts:       tlsOpts,
 	}
-
 	if secureMetrics {
-		// FilterProvider is used to protect the metrics endpoint with authn/authz.
-		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'kustomize/rbac/kustomization.yaml'. More info:
-		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
@@ -163,33 +126,21 @@ func runManager(ctx context.Context, cfg *config.Config, logLevel string) error 
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       constants.LeaderElectionID,
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, errors.ErrStartManager)
 		return err
 	}
 
-	if err = (&controller.BreakglassReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor(constants.ControllerIdentity),
-		Config:   cfg,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, errors.ErrCreateController, "controller", constants.ControllerIdentity)
+	// Register the Breakglass controller
+	if err := breakglass.NewBreakglassReconciler(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		breakglass.WithRecurringManager(recurring.New(clock.SimpleClock{})),
+	).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create Breakglass controller")
 		return err
 	}
-	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, errors.ErrSetupHealthCheck)
@@ -207,13 +158,4 @@ func runManager(ctx context.Context, cfg *config.Config, logLevel string) error 
 	}
 
 	return nil
-}
-
-// opts will be used to configure the zap logger.
-var opts zap.Options
-
-func init() {
-	// Initialize the zap logger options
-	opts.Development = true
-	opts.BindFlags(flag.CommandLine)
 }

@@ -28,6 +28,11 @@ controller:
     requests:
       cpu: 10m
       memory: 64Mi
+  
+  # Kubernetes service environment variables
+  kubernetesService:
+    host: "kubernetes.default.svc"
+    port: "443"
 
 # Metrics configuration
 metrics:

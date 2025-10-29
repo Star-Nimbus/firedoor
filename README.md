@@ -47,18 +47,21 @@ spec:
       name: "devops-team"
   
   # Inline RBAC rules
-  accessPolicy:
-    rules:
-      - actions: ["get", "list", "patch"]
-        apiGroups: [""]
-        resources: ["pods", "services"]
-        namespaces: ["production"]
+  policy:
+    - namespace: "production"
+      rules:
+        - actions: ["get", "list", "patch"]
+          apiGroups: [""]
+          resources: ["pods", "services"]
   
   # Approval workflow
-  approvalRequired: true
+  approval:
+    required: true
   
-  # Duration of access
-  duration: "1h"
+  # Schedule defines timing and duration
+  schedule:
+    start: "2024-01-15T10:00:00Z"
+    duration: "1h"
   
   # Required justification
   justification: "Critical production issue requiring immediate access"
@@ -85,31 +88,34 @@ spec:
   clusterRoles:
     - "maintenance-admin"
   
-  approvalRequired: false
-  duration: "2h"
+  approval:
+    required: false
+  
   justification: "Daily system maintenance and health checks"
   
-  # Enable recurring access
-  recurring: true
-  
-  # Cron schedule: Every weekday at 6 AM UTC
-  # Format: "minute hour day-of-month month day-of-week"
-  recurrenceSchedule: "0 6 * * 1-5"
+  # Schedule with recurring cron
+  schedule:
+    start: "2024-01-15T06:00:00Z"
+    duration: "2h"
+    cron: "0 6 * * 1-5"  # Every weekday at 6 AM UTC
+    location: "UTC"
+    maxActivations: 100  # Optional: limit total activations
 EOF
 ```
 
 #### Cron Schedule Format
 
-The `recurrenceSchedule` field uses standard cron syntax:
+The `schedule.cron` field uses standard 5-field cron syntax (minute hour day-of-month month day-of-week):
 
 - `"0 9 * * 1-5"` - Weekdays at 9 AM
 - `"0 0 * * *"` - Daily at midnight
 - `"0 9 * * 1"` - Mondays at 9 AM
 - `"0 2 1 * *"` - First day of month at 2 AM
+- `"*/30 * * * *"` - Every 30 minutes
 
 #### Recurring Access States
 
-Recurring breakglass resources have special phases:
+Recurring breakglass resources have special condition types:
 
 - `RecurringPending`: Waiting for the next scheduled activation
 - `RecurringActive`: Currently active and granting access
@@ -117,9 +123,10 @@ Recurring breakglass resources have special phases:
 
 The controller automatically manages the lifecycle of recurring access, including:
 
-- Calculating next activation times
-- Tracking activation counts
+- Calculating next activation times based on cron schedule
+- Tracking activation counts and respecting maxActivations limits
 - Managing transitions between states
+- Supporting timezone-aware scheduling with the `location` field
 - Providing metrics for monitoring
 
 ## Privilege Escalation Mode
@@ -175,18 +182,22 @@ spec:
       name: "admin@example.com"
   
   # These permissions require privilege escalation mode
-  accessPolicy:
-    rules:
-      - actions: ["get", "list", "watch"]
-        resources: ["nodes"]  # Cluster-scoped resource
-        apiGroups: [""]
+  policy:
+    - rules:
+        - actions: ["get", "list", "watch"]
+          resources: ["nodes"]  # Cluster-scoped resource
+          apiGroups: [""]
       
-      - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
-        resources: ["persistentvolumes"]  # Storage resources
-        apiGroups: [""]
+        - actions: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          resources: ["persistentvolumes"]  # Storage resources
+          apiGroups: [""]
   
-  approvalRequired: true  # Always require approval for elevated access
-  duration: "30m"         # Short duration for elevated permissions
+  approval:
+    required: true  # Always require approval for elevated access
+  
+  schedule:
+    duration: "30m"  # Short duration for elevated permissions
+  
   justification: "Emergency cluster maintenance requiring node access"
 ```
 
@@ -535,19 +546,113 @@ spec:
   # Use existing ClusterRoles or define inline rules
   clusterRoles: ["cluster-admin"]
   # OR
-  accessPolicy:
-    rules:
-      - actions: ["get", "list", "patch"]
-        apiGroups: [""]
-        resources: ["pods", "services"]
-        namespaces: ["production"]
+  policy:
+    - namespace: "production"
+      rules:
+        - actions: ["get", "list", "patch"]
+          apiGroups: [""]
+          resources: ["pods", "services"]
   
-  approvalRequired: true
-  duration: "1h"
+  approval:
+    required: true
+  
+  schedule:
+    start: "2024-01-15T10:00:00Z"
+    duration: "1h"
+  
   justification: "Production outage troubleshooting"
+  ticketID: "INC-12345"  # Optional external ticket reference
 ```
 
-- `group`: (string) The user group to grant access to. Either `user` or `group` must be provided.
-- `user`: (string) The individual user to grant access to. Either `user` or `group` must be provided.
+#### BreakglassSpec Fields
+
+- `subjects` (required): List of users, groups, or service accounts to grant access
+- `policy` (optional): Inline RBAC policy rules with optional namespace scoping
+- `clusterRoles` (optional): List of existing ClusterRole names to grant
+- `approval` (optional): Approval configuration (defaults to required: true)
+- `schedule` (required): Timing configuration including start time, duration, and optional cron recurrence
+- `justification` (required): Human-readable justification for the access request
+- `ticketID` (optional): External ticket or incident identifier
+
+#### ScheduleSpec Fields
+
+- `start` (optional): RFC3339 timestamp when schedule becomes active
+- `duration` (optional): Duration after which access is revoked
+- `cron` (optional): 5-field cron expression for recurring activations
+- `location` (optional): IANA timezone (defaults to UTC)
+- `maxActivations` (optional): Maximum number of activations for recurring schedules
+
+#### Example Use Cases
+
+**One-time Emergency Access:**
+
+```yaml
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: emergency-debug
+spec:
+  subjects:
+    - kind: User
+      name: "engineer@example.com"
+  policy:
+    - namespace: "production"
+      rules:
+        - actions: ["get", "list", "watch", "exec"]
+          apiGroups: [""]
+          resources: ["pods"]
+  schedule:
+    start: "2024-01-15T14:30:00Z"
+    duration: "30m"
+  justification: "Debug production issue in payment service"
+  ticketID: "INC-12345"
+```
+
+**Recurring Maintenance Window:**
+
+```yaml
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: weekly-maintenance
+spec:
+  subjects:
+    - kind: Group
+      name: "maintenance-team"
+  clusterRoles:
+    - "maintenance-admin"
+  approval:
+    required: false
+  schedule:
+    start: "2024-01-15T02:00:00Z"
+    duration: "4h"
+    cron: "0 2 * * 0"  # Every Sunday at 2 AM
+    location: "America/New_York"
+    maxActivations: 52  # Once per week for a year
+  justification: "Weekly system maintenance and updates"
+```
+
+**Cluster-wide Emergency Access:**
+
+```yaml
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: cluster-emergency
+spec:
+  subjects:
+    - kind: User
+      name: "admin@example.com"
+  policy:
+    - rules:  # Cluster-scoped (no namespace)
+        - actions: ["*"]
+          apiGroups: ["*"]
+          resources: ["*"]
+  approval:
+    required: true
+  schedule:
+    duration: "1h"
+  justification: "Critical cluster-wide incident requiring full access"
+```
 
 See the [Helm chart](../../charts/firedoor) for installation and CRD management.

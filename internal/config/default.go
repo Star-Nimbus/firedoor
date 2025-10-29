@@ -36,6 +36,16 @@ type OTelDefaults struct {
 	Exporter string
 	Endpoint string
 	Service  string
+	LogLevel string
+	TLS      TLSDefaults
+}
+
+// TLSDefaults holds TLS default values
+type TLSDefaults struct {
+	InsecureSkipVerify bool
+	CAFile             string
+	CertFile           string
+	KeyFile            string
 }
 
 // ManagerDefaults holds manager default values
@@ -67,6 +77,7 @@ type ControllerDefaults struct {
 	ReconcileTimeout    time.Duration
 	RetryDelay          time.Duration
 	PrivilegeEscalation bool
+	Backoff             time.Duration
 }
 
 // ServerDefaults holds server default values
@@ -86,10 +97,17 @@ type AlertmanagerDefaults struct {
 func NewDefaults() *Defaults {
 	return &Defaults{
 		OTel: OTelDefaults{
-			Enabled:  false,
+			Enabled:  false, // Disabled by default for simpler development
 			Exporter: "otlp",
 			Endpoint: "otel-collector-opentelemetry-collector.telemetry-system.svc.cluster.local:4317",
 			Service:  "firedoor-operator",
+			LogLevel: "info",
+			TLS: TLSDefaults{
+				InsecureSkipVerify: true, // Insecure by default for easier development
+				CAFile:             "",
+				CertFile:           "",
+				KeyFile:            "",
+			},
 		},
 		Manager: ManagerDefaults{
 			LeaderElect: false,
@@ -111,6 +129,7 @@ func NewDefaults() *Defaults {
 			ReconcileTimeout:    30 * time.Second,
 			RetryDelay:          1 * time.Second,
 			PrivilegeEscalation: false,
+			Backoff:             10 * time.Second,
 		},
 		Server: ServerDefaults{
 			MetricsBindAddress:     ":8080",

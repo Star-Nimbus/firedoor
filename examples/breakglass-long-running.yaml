@@ -1,0 +1,28 @@
+apiVersion: access.cloudnimbus.io/v1alpha1
+kind: Breakglass
+metadata:
+  name: long-running-access
+  namespace: firedoor-system
+spec:
+  justification: "Pre-approved maintenance window beginning at a specific time"
+  ticketID: "MAINT-2025-001"
+  subjects:
+    - kind: User
+      name: "engineer@example.com"
+      apiGroup: "rbac.authorization.k8s.io"
+  policy:
+    - namespace: "default"
+      rules:
+        - apiGroups: [""]
+          resources: ["pods", "services"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["configmaps"]
+          verbs: ["get", "list", "update"]
+  approval:
+    required: false
+  schedule:
+    # Start publishing access at 09:00 UTC on 15 Jan 2025
+    start: "2025-01-15T09:00:00Z"
+    # Omitting duration keeps the access active until the Breakglass resource is
+    # deleted or revoked manually.

@@ -46,6 +46,10 @@ spec:
         env:
         - name: FD_CONTROLLER_PRIVILEGE_ESCALATION
           value: {{ .Values.rbac.privilegeEscalation | quote }}
+        - name: KUBERNETES_SERVICE_HOST
+          value: {{ .Values.controller.kubernetesService.host | quote }}
+        - name: KUBERNETES_SERVICE_PORT
+          value: {{ .Values.controller.kubernetesService.port | quote }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         {{- if .Values.healthProbe.port }}
