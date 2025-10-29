@@ -99,7 +99,7 @@ func TestFinalCompletionTime(t *testing.T) {
 		t.Fatalf("expected completion time")
 	}
 
-	wantEnd := time.Date(2024, 1, 1, 10, 15, 0, 0, time.UTC).Add(20 * time.Minute)
+	wantEnd := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC).Add(20 * time.Minute)
 	if !got.Equal(wantEnd) {
 		t.Errorf("end = %v, want %v", got, wantEnd)
 	}

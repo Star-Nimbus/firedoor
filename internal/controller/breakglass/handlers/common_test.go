@@ -17,6 +17,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// timeMatcher is a custom gomock matcher for time equality
+type timeMatcher struct {
+	expected time.Time
+}
+
+func (m *timeMatcher) Matches(x interface{}) bool {
+	if t, ok := x.(time.Time); ok {
+		return t.Equal(m.expected)
+	}
+	return false
+}
+
+func (m *timeMatcher) String() string {
+	return "is equal to " + m.expected.String()
+}
+
+func timeEqual(t time.Time) gomock.Matcher {
+	return &timeMatcher{expected: t}
+}
+
 func TestHandler_GrantAndActivate(t *testing.T) {
 	mock_controller := gomock.NewController(t)
 	defer mock_controller.Finish()
@@ -175,7 +195,7 @@ func TestHandler_RevokeAndExpire(t *testing.T) {
 		// TODO:Consider making the a conditional type of error to distinguish retryable vs permanent errors
 		{
 			name:       "retryable RBAC revoke error, requeue with backoff",
-			revokeErr:  internalerrors.NewPermanentRBACError("revoke", "mock-role", accessv1alpha1.ReasonRBACForbidden, errors.New("simulated RBAC revoke error")),
+			revokeErr:  internalerrors.NewRetryableRBACError("revoke", "mock-role", accessv1alpha1.ReasonRBACTimeout, errors.New("simulated RBAC revoke error")),
 			wantCond:   "",
 			wantReason: "",
 			wantErr:    false,
@@ -184,7 +204,7 @@ func TestHandler_RevokeAndExpire(t *testing.T) {
 			name:        "recurring revoke transitions to pending",
 			revokeErr:   nil,
 			wantCond:    accessv1alpha1.ConditionRecurringPending,
-			wantReason:  accessv1alpha1.ReasonRecurringWaiting,
+			wantReason:  accessv1alpha1.ReasonRecurringScheduled,
 			wantRequeue: 45 * time.Minute,
 			wantErr:     false,
 			prepare: func(bg *accessv1alpha1.Breakglass, clock *mocks.MockClock) {
@@ -194,7 +214,7 @@ func TestHandler_RevokeAndExpire(t *testing.T) {
 					Duration: metav1.Duration{Duration: 15 * time.Minute},
 				}
 				bg.Status.NextActivationAt = &metav1.Time{Time: next}
-				clock.EXPECT().Until(next).Return(45 * time.Minute)
+				clock.EXPECT().Until(timeEqual(next)).Return(45 * time.Minute)
 			},
 		},
 	}

@@ -50,6 +50,18 @@ func CurrentWindow(bg *accessv1alpha1.Breakglass, now time.Time) (Window, bool) 
 		}
 	}
 
+	// Check if we have a start time and if the current time is before it
+	if !bg.Spec.Schedule.Start.IsZero() {
+		scheduleStart := bg.Spec.Schedule.Start.Time.In(loc)
+		if nowLoc.Before(scheduleStart) {
+			return Window{}, false
+		}
+		// If we found a start from cron but it's before the schedule start, use the schedule start
+		if !start.IsZero() && start.Before(scheduleStart) {
+			start = scheduleStart
+		}
+	}
+
 	if start.IsZero() {
 		return Window{}, false
 	}

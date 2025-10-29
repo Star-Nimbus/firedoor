@@ -383,6 +383,13 @@ func (m *Manager) checkActivationLimits(bg *accessv1alpha1.Breakglass, log logge
 	if schedule.MaxActivations != nil && bg.Status.ActivationCount >= *schedule.MaxActivations {
 		log.V(3).Info("max activations reached; stopping recurrence", "count", bg.Status.ActivationCount)
 		bg.Status.NextActivationAt = nil
+		m.setCondition(
+			bg,
+			accessv1alpha1.ConditionFailed,
+			accessv1alpha1.ReasonMaxActivationsReached,
+			fmt.Sprintf("Maximum activations reached: %d", *schedule.MaxActivations),
+			bg.Generation,
+		)
 		return true
 	}
 
