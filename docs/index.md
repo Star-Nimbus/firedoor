@@ -131,3 +131,4 @@ Firedoor is licensed under the Apache License 2.0. See the [LICENSE](https://git
 ---
 
 Ready to get started? Check out our [Installation Guide](getting-started/installation.md)!
+
